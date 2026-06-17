@@ -251,6 +251,17 @@ func (h *DepartmentHandler) PatchDepartment(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
+		wouldCreateCycle, err := h.departmentRepo.WouldCreateCycle(uint(id), *req.ParentID)
+		if err != nil {
+			http.Error(w, "Failed to check department cycle", http.StatusInternalServerError)
+			return
+		}
+
+		if wouldCreateCycle {
+			http.Error(w, "department cannot be moved inside its own subtree", http.StatusBadRequest)
+			return
+		}
+
 		department.ParentID = req.ParentID
 	}
 
@@ -330,18 +341,8 @@ func (h *DepartmentHandler) DeleteDepartment(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
-		if err := h.departmentRepo.ReassignChildren(uint(id), uint(reassignToID)); err != nil {
-			http.Error(w, "Failed to reassign child departments", http.StatusInternalServerError)
-			return
-		}
-
-		if err := h.departmentRepo.ReassignEmployees(uint(id), uint(reassignToID)); err != nil {
-			http.Error(w, "Failed to reassign employees", http.StatusInternalServerError)
-			return
-		}
-
-		if err := h.departmentRepo.DeleteByID(uint(id)); err != nil {
-			http.Error(w, "Failed to delete department", http.StatusInternalServerError)
+		if err := h.departmentRepo.ReassignAndDelete(uint(id), uint(reassignToID)); err != nil {
+			http.Error(w, "Failed to reassign and delete department", http.StatusInternalServerError)
 			return
 		}
 

@@ -42,20 +42,28 @@ func (r *DepartmentRepository) DeleteByID(id uint) error {
 	return r.db.Delete(&model.Department{}, id).Error
 }
 
-// reassign department
+// transaction | reassign and delete
 
-func (r *DepartmentRepository) ReassignChildren(fromDepartmentID uint, toDepartmentID uint) error {
-	return r.db.Model(&model.Department{}).
-		Where("parent_id = ?", fromDepartmentID).
-		Update("parent_id", toDepartmentID).Error
-}
+func (r *DepartmentRepository) ReassignAndDelete(fromDepartmentID uint, toDepartmentID uint) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&model.Department{}).
+			Where("parent_id = ?", fromDepartmentID).
+			Update("parent_id", toDepartmentID).Error; err != nil {
+			return err
+		}
 
-// reassign employee
+		if err := tx.Model(&model.Employee{}).
+			Where("department_id = ?", fromDepartmentID).
+			Update("department_id", toDepartmentID).Error; err != nil {
+			return err
+		}
 
-func (r *DepartmentRepository) ReassignEmployees(fromDepartmentID uint, toDepartmentID uint) error {
-	return r.db.Model(&model.Employee{}).
-		Where("department_id = ?", fromDepartmentID).
-		Update("department_id", toDepartmentID).Error
+		if err := tx.Delete(&model.Department{}, fromDepartmentID).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
 }
 
 // сhildren of the department
@@ -110,4 +118,27 @@ func (r *DepartmentRepository) ExistsByNameAndParentExceptID(name string, parent
 	}
 
 	return count > 0, nil
+}
+
+// would create cycle?
+
+func (r *DepartmentRepository) WouldCreateCycle(departmentID uint, newParentID uint) (bool, error) {
+	currentID := newParentID
+
+	for {
+		if currentID == departmentID {
+			return true, nil
+		}
+
+		currentDepartment, err := r.GetByID(currentID)
+		if err != nil {
+			return false, err
+		}
+
+		if currentDepartment.ParentID == nil {
+			return false, nil
+		}
+
+		currentID = *currentDepartment.ParentID
+	}
 }

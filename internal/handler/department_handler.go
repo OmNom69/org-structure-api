@@ -33,6 +33,7 @@ type DepartmentTreeResponse struct {
 	Employees []model.Employee         `json:"employees,omitempty"`
 	Children  []DepartmentTreeResponse `json:"children"`
 }
+
 type CreateDepartmentRequest struct {
 	Name     string `json:"name"`
 	ParentID *uint  `json:"parent_id"`
@@ -168,7 +169,7 @@ func (h *DepartmentHandler) buildDepartmentTree(
 	}
 
 	if includeEmployees {
-		employees, err := h.employeeRepo.GetEmployees(department.ID)
+		employees, err := h.employeeRepo.GetEmployeesForTree(department.ID)
 		if err != nil {
 			return DepartmentTreeResponse{}, err
 		}

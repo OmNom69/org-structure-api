@@ -36,6 +36,10 @@ func main() {
 
 	// employee
 	router.HandleFunc("POST /departments/{id}/employees/", employeeHandler.CreateEmployee)
+	router.HandleFunc("PATCH /employees/{id}", employeeHandler.PatchEmployee)
+	router.HandleFunc("GET /employees/", employeeHandler.GetEmployees)
+	router.HandleFunc("GET /employees/{id}", employeeHandler.GetEmployee)
+	router.HandleFunc("DELETE /employees/{id}", employeeHandler.DeleteEmployee)
 
 	addr := ":" + cfg.Port
 	log.Println("server started", addr)

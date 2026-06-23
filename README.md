@@ -147,7 +147,7 @@ Query parameters:
 GET /departments/1?depth=3&include_employees=true
 ```
 
-Если `include_employees=false`, сотрудники не будут включены в дерево.
+Если `include_employees=false`, сотрудники не будут включены в дерево:
 
 ```http
 GET /departments/1?depth=3&include_employees=false

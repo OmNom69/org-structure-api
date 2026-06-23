@@ -205,7 +205,7 @@ func (h *EmployeeHandler) GetEmployees(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(employees); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)

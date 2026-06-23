@@ -27,7 +27,7 @@ func main() {
 	employeeService := service.NewEmployeeService(employeeRepo, departmentRepo)
 
 	departmentHandler := handler.NewDepartmentHandler(departmentRepo, employeeRepo)
-	employeeHandler := handler.NewEmployeeHandler(employeeService, employeeRepo, departmentRepo)
+	employeeHandler := handler.NewEmployeeHandler(employeeService)
 
 	router := http.NewServeMux()
 

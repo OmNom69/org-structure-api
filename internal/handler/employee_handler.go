@@ -5,25 +5,16 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/OmNom69/org-structure-api/internal/repository"
 	"github.com/OmNom69/org-structure-api/internal/service"
 )
 
 type EmployeeHandler struct {
 	employeeService *service.EmployeeService
-	employeeRepo    *repository.EmployeeRepository
-	departmentRepo  *repository.DepartmentRepository
 }
 
-func NewEmployeeHandler(
-	employeeService *service.EmployeeService,
-	employeeRepo *repository.EmployeeRepository,
-	departmentRepo *repository.DepartmentRepository,
-) *EmployeeHandler {
+func NewEmployeeHandler(employeeService *service.EmployeeService) *EmployeeHandler {
 	return &EmployeeHandler{
 		employeeService: employeeService,
-		employeeRepo:    employeeRepo,
-		departmentRepo:  departmentRepo,
 	}
 }
 

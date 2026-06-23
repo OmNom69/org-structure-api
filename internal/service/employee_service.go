@@ -30,6 +30,8 @@ type CreateEmployeeInput struct {
 	HiredAt      *string
 }
 
+// create
+
 func (s *EmployeeService) CreateEmployee(input CreateEmployeeInput) (*model.Employee, error) {
 	if _, err := s.departmentRepo.GetByID(input.DepartmentID); err != nil {
 		return nil, err
@@ -69,3 +71,11 @@ func (s *EmployeeService) CreateEmployee(input CreateEmployeeInput) (*model.Empl
 
 	return &employee, nil
 }
+
+// get all employees
+
+func (s *EmployeeService) GetEmployees() ([]model.Employee, error) {
+	return s.employeeRepo.GetAllEmployees()
+}
+
+// get employee by ID

@@ -171,7 +171,7 @@ func (h *EmployeeHandler) PatchEmployee(w http.ResponseWriter, r *http.Request) 
 // get all employees
 
 func (h *EmployeeHandler) GetEmployees(w http.ResponseWriter, r *http.Request) {
-	employees, err := h.employeeRepo.GetAllEmployees()
+	employees, err := h.employeeService.GetEmployees()
 	if err != nil {
 		http.Error(w, "Failed to get employees", http.StatusInternalServerError)
 		return

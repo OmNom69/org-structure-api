@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/OmNom69/org-structure-api/internal/repository"
 	"github.com/OmNom69/org-structure-api/internal/service"
@@ -90,12 +89,6 @@ func (h *EmployeeHandler) PatchEmployee(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	employee, err := h.employeeRepo.GetByID(uint(id))
-	if err != nil {
-		http.Error(w, "employee not found", http.StatusNotFound)
-		return
-	}
-
 	var req PatchEmployeeRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -103,60 +96,15 @@ func (h *EmployeeHandler) PatchEmployee(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if req.FullName == nil &&
-		req.Position == nil &&
-		req.DepartmentID == nil &&
-		req.HiredAt == nil {
-		http.Error(w, "nothing to update", http.StatusBadRequest)
-		return
-	}
-
-	if req.FullName != nil {
-		fullName, err := validateRequiredString(*req.FullName, "full_name")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		employee.FullName = fullName
-	}
-
-	if req.Position != nil {
-		position, err := validateRequiredString(*req.Position, "position")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		employee.Position = position
-	}
-
-	if req.DepartmentID != nil {
-		if *req.DepartmentID == 0 {
-			http.Error(w, "invalid department id", http.StatusBadRequest)
-			return
-		}
-
-		if _, err := h.departmentRepo.GetByID(*req.DepartmentID); err != nil {
-			http.Error(w, "department not found", http.StatusNotFound)
-			return
-		}
-
-		employee.DepartmentID = *req.DepartmentID
-	}
-
-	if req.HiredAt != nil {
-		hiredAt, err := time.Parse("2006-01-02", *req.HiredAt)
-		if err != nil {
-			http.Error(w, "hired_at must be in YYYY-MM-DD format", http.StatusBadRequest)
-			return
-		}
-
-		employee.HiredAt = &hiredAt
-	}
-
-	if err := h.employeeRepo.Update(employee); err != nil {
-		http.Error(w, "Failed to update employee", http.StatusInternalServerError)
+	employee, err := h.employeeService.PatchEmployee(service.PatchEmployeeInput{
+		ID:           uint(id),
+		FullName:     req.FullName,
+		Position:     req.Position,
+		DepartmentID: req.DepartmentID,
+		HiredAt:      req.HiredAt,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 

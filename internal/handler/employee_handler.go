@@ -221,13 +221,8 @@ func (h *EmployeeHandler) DeleteEmployee(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if _, err := h.employeeRepo.GetByID(uint(id)); err != nil {
+	if err := h.employeeService.DeleteEmployee(uint(id)); err != nil {
 		http.Error(w, "employee not found", http.StatusNotFound)
-		return
-	}
-
-	if err := h.employeeRepo.DeleteByID(uint(id)); err != nil {
-		http.Error(w, "Failed to delete employee", http.StatusInternalServerError)
 		return
 	}
 

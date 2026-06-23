@@ -83,3 +83,17 @@ func (s *EmployeeService) GetEmployees() ([]model.Employee, error) {
 func (s *EmployeeService) GetEmployee(id uint) (*model.Employee, error) {
 	return s.employeeRepo.GetByID(id)
 }
+
+// delete
+
+func (s *EmployeeService) DeleteEmployee(id uint) error {
+	if _, err := s.employeeRepo.GetByID(id); err != nil {
+		return err
+	}
+
+	if err := s.employeeRepo.DeleteByID(id); err != nil {
+		return err
+	}
+
+	return nil
+}

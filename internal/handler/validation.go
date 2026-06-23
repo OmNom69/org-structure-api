@@ -1,21 +1,7 @@
 package handler
 
-import (
-	"fmt"
-	"strings"
-)
+import "github.com/OmNom69/org-structure-api/internal/validator"
 
 func validateRequiredString(value string, fieldName string) (string, error) {
-	value = strings.TrimSpace(value)
-
-	if value == "" {
-		return "", fmt.Errorf("%s is required", fieldName)
-	}
-
-	if len(value) > 200 {
-		return "", fmt.Errorf("%s must be less than 200 characters", fieldName)
-	}
-
-	return value, nil
-
+	return validator.RequiredString(value, fieldName)
 }

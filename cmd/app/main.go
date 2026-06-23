@@ -8,6 +8,7 @@ import (
 	"github.com/OmNom69/org-structure-api/internal/database"
 	"github.com/OmNom69/org-structure-api/internal/handler"
 	"github.com/OmNom69/org-structure-api/internal/repository"
+	"github.com/OmNom69/org-structure-api/internal/service"
 )
 
 func main() {
@@ -23,8 +24,10 @@ func main() {
 	departmentRepo := repository.NewDepartmentRepository(db)
 	employeeRepo := repository.NewEmployeeRepository(db)
 
+	employeeService := service.NewEmployeeService(employeeRepo, departmentRepo)
+
 	departmentHandler := handler.NewDepartmentHandler(departmentRepo, employeeRepo)
-	employeeHandler := handler.NewEmployeeHandler(employeeRepo, departmentRepo)
+	employeeHandler := handler.NewEmployeeHandler(employeeService, employeeRepo, departmentRepo)
 
 	router := http.NewServeMux()
 
@@ -47,5 +50,4 @@ func main() {
 	if err := http.ListenAndServe(addr, router); err != nil {
 		log.Fatal(err)
 	}
-
 }

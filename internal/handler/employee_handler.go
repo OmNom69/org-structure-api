@@ -6,22 +6,25 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/OmNom69/org-structure-api/internal/model"
 	"github.com/OmNom69/org-structure-api/internal/repository"
+	"github.com/OmNom69/org-structure-api/internal/service"
 )
 
 type EmployeeHandler struct {
-	employeeRepo   *repository.EmployeeRepository
-	departmentRepo *repository.DepartmentRepository
+	employeeService *service.EmployeeService
+	employeeRepo    *repository.EmployeeRepository
+	departmentRepo  *repository.DepartmentRepository
 }
 
 func NewEmployeeHandler(
+	employeeService *service.EmployeeService,
 	employeeRepo *repository.EmployeeRepository,
 	departmentRepo *repository.DepartmentRepository,
 ) *EmployeeHandler {
 	return &EmployeeHandler{
-		employeeRepo:   employeeRepo,
-		departmentRepo: departmentRepo,
+		employeeService: employeeService,
+		employeeRepo:    employeeRepo,
+		departmentRepo:  departmentRepo,
 	}
 }
 
@@ -49,52 +52,21 @@ func (h *EmployeeHandler) CreateEmployee(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if _, err := h.departmentRepo.GetByID(uint(departmentID)); err != nil {
-		http.Error(w, "department not found", http.StatusNotFound)
-		return
-	}
-
 	var req CreateEmployeeRequest
 
-	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
 
-	fullName, err := validateRequiredString(req.FullName, "full_name")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	position, err := validateRequiredString(req.Position, "position")
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	var hiredAt *time.Time
-
-	if req.HiredAt != nil {
-		parsedHiredAt, err := time.Parse("2006-01-02", *req.HiredAt)
-		if err != nil {
-			http.Error(w, "invalid hired_at format, use YYYY-MM-DD", http.StatusBadRequest)
-			return
-		}
-
-		hiredAt = &parsedHiredAt
-	}
-
-	employee := model.Employee{
+	employee, err := h.employeeService.CreateEmployee(service.CreateEmployeeInput{
 		DepartmentID: uint(departmentID),
-		FullName:     fullName,
-		Position:     position,
-		HiredAt:      hiredAt,
-	}
-
-	if err := h.employeeRepo.Create(&employee); err != nil {
-		http.Error(w, "Failed to create employee", http.StatusInternalServerError)
+		FullName:     req.FullName,
+		Position:     req.Position,
+		HiredAt:      req.HiredAt,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -225,7 +197,6 @@ func (h *EmployeeHandler) GetEmployee(w http.ResponseWriter, r *http.Request) {
 	}
 
 	employee, err := h.employeeRepo.GetByID(uint(id))
-
 	if err != nil {
 		http.Error(w, "employee not found", http.StatusNotFound)
 		return
@@ -237,7 +208,6 @@ func (h *EmployeeHandler) GetEmployee(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		return
 	}
-
 }
 
 // delete
@@ -267,6 +237,7 @@ func (h *EmployeeHandler) DeleteEmployee(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		return

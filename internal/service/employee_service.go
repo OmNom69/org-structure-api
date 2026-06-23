@@ -79,3 +79,7 @@ func (s *EmployeeService) GetEmployees() ([]model.Employee, error) {
 }
 
 // get employee by ID
+
+func (s *EmployeeService) GetEmployee(id uint) (*model.Employee, error) {
+	return s.employeeRepo.GetByID(id)
+}

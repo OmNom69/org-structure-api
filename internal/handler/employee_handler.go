@@ -196,7 +196,7 @@ func (h *EmployeeHandler) GetEmployee(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	employee, err := h.employeeRepo.GetByID(uint(id))
+	employee, err := h.employeeService.GetEmployee(uint(id))
 	if err != nil {
 		http.Error(w, "employee not found", http.StatusNotFound)
 		return

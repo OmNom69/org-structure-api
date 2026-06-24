@@ -1,17 +1,11 @@
 package service
 
 import (
-	"errors"
 	"time"
 
 	"github.com/OmNom69/org-structure-api/internal/model"
 	"github.com/OmNom69/org-structure-api/internal/repository"
 	"github.com/OmNom69/org-structure-api/internal/validator"
-)
-
-var (
-	ErrNothingToUpdate     = errors.New("nothing to update")
-	ErrInvalidDepartmentID = errors.New("invalid department id")
 )
 
 type EmployeeService struct {

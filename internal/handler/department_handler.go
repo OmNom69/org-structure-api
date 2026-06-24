@@ -8,20 +8,24 @@ import (
 
 	"github.com/OmNom69/org-structure-api/internal/model"
 	"github.com/OmNom69/org-structure-api/internal/repository"
+	"github.com/OmNom69/org-structure-api/internal/service"
 )
 
 type DepartmentHandler struct {
-	departmentRepo *repository.DepartmentRepository
-	employeeRepo   *repository.EmployeeRepository
+	departmentService *service.DepartmentService
+	departmentRepo    *repository.DepartmentRepository
+	employeeRepo      *repository.EmployeeRepository
 }
 
 func NewDepartmentHandler(
+	departmentService *service.DepartmentService,
 	departmentRepo *repository.DepartmentRepository,
 	employeeRepo *repository.EmployeeRepository,
 ) *DepartmentHandler {
 	return &DepartmentHandler{
-		departmentRepo: departmentRepo,
-		employeeRepo:   employeeRepo,
+		departmentService: departmentService,
+		departmentRepo:    departmentRepo,
+		employeeRepo:      employeeRepo,
 	}
 }
 
@@ -44,48 +48,17 @@ type CreateDepartmentRequest struct {
 func (h *DepartmentHandler) CreateDepartment(w http.ResponseWriter, r *http.Request) {
 	var req CreateDepartmentRequest
 
-	err := json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 
-	name, err := validateRequiredString(req.Name, "name")
+	department, err := h.departmentService.CreateDepartment(service.CreateDepartmentInput{
+		Name:     req.Name,
+		ParentID: req.ParentID,
+	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if req.ParentID != nil {
-		if *req.ParentID == 0 {
-			http.Error(w, "invalid parent department id", http.StatusBadRequest)
-			return
-		}
-
-		if _, err := h.departmentRepo.GetByID(*req.ParentID); err != nil {
-			http.Error(w, "parent department not found", http.StatusNotFound)
-			return
-		}
-	}
-
-	exists, err := h.departmentRepo.ExistsByNameAndParent(name, req.ParentID)
-	if err != nil {
-		http.Error(w, "Failed to check department uniqueness", http.StatusInternalServerError)
-		return
-	}
-
-	if exists {
-		http.Error(w, "department with this name already exists in this parent", http.StatusConflict)
-		return
-	}
-
-	department := model.Department{
-		Name:     name,
-		ParentID: req.ParentID,
-	}
-
-	if err := h.departmentRepo.Create(&department); err != nil {
-		http.Error(w, "Failed to create department", http.StatusInternalServerError)
 		return
 	}
 
@@ -96,7 +69,6 @@ func (h *DepartmentHandler) CreateDepartment(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		return
 	}
-
 }
 
 // get department

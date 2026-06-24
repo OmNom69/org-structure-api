@@ -126,12 +126,6 @@ func (h *DepartmentHandler) PatchDepartment(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	department, err := h.departmentRepo.GetByID(uint(id))
-	if err != nil {
-		http.Error(w, "department not found", http.StatusNotFound)
-		return
-	}
-
 	var raw map[string]json.RawMessage
 
 	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
@@ -139,11 +133,8 @@ func (h *DepartmentHandler) PatchDepartment(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if _, okName := raw["name"]; !okName {
-		if _, okParent := raw["parent_id"]; !okParent {
-			http.Error(w, "nothing to update", http.StatusBadRequest)
-			return
-		}
+	input := service.PatchDepartmentInput{
+		ID: uint(id),
 	}
 
 	nameRaw, ok := raw["name"]
@@ -155,19 +146,15 @@ func (h *DepartmentHandler) PatchDepartment(w http.ResponseWriter, r *http.Reque
 			return
 		}
 
-		name, err := validateRequiredString(nameValue, "name")
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		department.Name = name
+		input.Name = &nameValue
 	}
 
 	parentRaw, ok := raw["parent_id"]
 	if ok {
+		input.ParentIDSet = true
+
 		if string(parentRaw) == "null" {
-			department.ParentID = nil
+			input.ParentID = nil
 		} else {
 			var parentID uint
 
@@ -176,53 +163,13 @@ func (h *DepartmentHandler) PatchDepartment(w http.ResponseWriter, r *http.Reque
 				return
 			}
 
-			if parentID == 0 {
-				http.Error(w, "invalid parent department id", http.StatusBadRequest)
-				return
-			}
-
-			if parentID == uint(id) {
-				http.Error(w, "department cannot be parent of itself", http.StatusBadRequest)
-				return
-			}
-
-			if _, err := h.departmentRepo.GetByID(parentID); err != nil {
-				http.Error(w, "parent department not found", http.StatusNotFound)
-				return
-			}
-
-			wouldCreateCycle, err := h.departmentRepo.WouldCreateCycle(uint(id), parentID)
-			if err != nil {
-				http.Error(w, "Failed to check department cycle", http.StatusInternalServerError)
-				return
-			}
-
-			if wouldCreateCycle {
-				http.Error(w, "department cannot be moved inside its own subtree", http.StatusBadRequest)
-				return
-			}
-
-			department.ParentID = &parentID
+			input.ParentID = &parentID
 		}
 	}
 
-	exists, err := h.departmentRepo.ExistsByNameAndParentExceptID(
-		department.Name,
-		department.ParentID,
-		department.ID,
-	)
+	department, err := h.departmentService.PatchDepartment(input)
 	if err != nil {
-		http.Error(w, "Failed to check department uniqueness", http.StatusInternalServerError)
-		return
-	}
-
-	if exists {
-		http.Error(w, "department with this name already exists in this parent", http.StatusConflict)
-		return
-	}
-
-	if err := h.departmentRepo.Update(department); err != nil {
-		http.Error(w, "Failed to update department", http.StatusInternalServerError)
+		http.Error(w, err.Error(), departmentServiceErrorStatus(err))
 		return
 	}
 

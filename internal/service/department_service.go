@@ -33,6 +33,13 @@ type DeleteDepartmentInput struct {
 	ReassignToDepartmentID *uint
 }
 
+type PatchDepartmentInput struct {
+	ID          uint
+	Name        *string
+	ParentID    *uint
+	ParentIDSet bool
+}
+
 // create department
 
 func (s *DepartmentService) CreateDepartment(input CreateDepartmentInput) (*model.Department, error) {
@@ -206,4 +213,80 @@ func (s *DepartmentService) DeleteDepartment(input DeleteDepartmentInput) (*dto.
 	default:
 		return nil, ErrInvalidDeleteMode
 	}
+}
+
+// patch department
+
+func (s *DepartmentService) PatchDepartment(input PatchDepartmentInput) (*model.Department, error) {
+	if input.ID == 0 {
+		return nil, ErrInvalidDepartmentID
+	}
+
+	department, err := s.departmentRepo.GetByID(input.ID)
+	if err != nil {
+		return nil, ErrDepartmentNotFound
+	}
+
+	if input.Name == nil && !input.ParentIDSet {
+		return nil, ErrNothingToUpdate
+	}
+
+	if input.Name != nil {
+		name, err := validator.RequiredString(*input.Name, "name")
+		if err != nil {
+			return nil, err
+		}
+
+		department.Name = name
+	}
+
+	if input.ParentIDSet {
+		if input.ParentID == nil {
+			department.ParentID = nil
+		} else {
+			parentID := *input.ParentID
+
+			if parentID == 0 {
+				return nil, ErrInvalidParentDepartmentID
+			}
+
+			if parentID == input.ID {
+				return nil, ErrDepartmentCannotBeParentOfItself
+			}
+
+			if _, err := s.departmentRepo.GetByID(parentID); err != nil {
+				return nil, ErrParentDepartmentNotFound
+			}
+
+			wouldCreateCycle, err := s.departmentRepo.WouldCreateCycle(input.ID, parentID)
+			if err != nil {
+				return nil, err
+			}
+
+			if wouldCreateCycle {
+				return nil, ErrDepartmentMoveWouldCreateCycle
+			}
+
+			department.ParentID = &parentID
+		}
+	}
+
+	exists, err := s.departmentRepo.ExistsByNameAndParentExceptID(
+		department.Name,
+		department.ParentID,
+		department.ID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if exists {
+		return nil, ErrDepartmentAlreadyExists
+	}
+
+	if err := s.departmentRepo.Update(department); err != nil {
+		return nil, err
+	}
+
+	return department, nil
 }

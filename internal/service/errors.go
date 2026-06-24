@@ -14,4 +14,9 @@ var (
 	ErrReassignTargetNotFound     = errors.New("reassign target department not found")
 	ErrCannotReassignToSelf       = errors.New("cannot reassign department to itself")
 	ErrDepartmentWouldCreateCycle = errors.New("department cannot be reassigned inside its own subtree")
+
+	ErrInvalidParentDepartmentID        = errors.New("invalid parent department id")
+	ErrParentDepartmentNotFound         = errors.New("parent department not found")
+	ErrDepartmentCannotBeParentOfItself = errors.New("department cannot be parent of itself")
+	ErrDepartmentMoveWouldCreateCycle   = errors.New("department cannot be moved inside its own subtree")
 )

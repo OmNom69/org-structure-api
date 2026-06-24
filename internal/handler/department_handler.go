@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"time"
 
-	"github.com/OmNom69/org-structure-api/internal/model"
 	"github.com/OmNom69/org-structure-api/internal/repository"
 	"github.com/OmNom69/org-structure-api/internal/service"
 )
@@ -27,15 +25,6 @@ func NewDepartmentHandler(
 		departmentRepo:    departmentRepo,
 		employeeRepo:      employeeRepo,
 	}
-}
-
-type DepartmentTreeResponse struct {
-	ID        uint                     `json:"id"`
-	Name      string                   `json:"name"`
-	ParentID  *uint                    `json:"parent_id"`
-	CreatedAt time.Time                `json:"created_at"`
-	Employees []model.Employee         `json:"employees,omitempty"`
-	Children  []DepartmentTreeResponse `json:"children"`
 }
 
 type CreateDepartmentRequest struct {
@@ -86,91 +75,47 @@ func (h *DepartmentHandler) GetDepartment(w http.ResponseWriter, r *http.Request
 
 	depthStr := r.URL.Query().Get("depth")
 	if depthStr != "" {
-		depth, err = strconv.Atoi(depthStr)
-		if err != nil || depth < 1 || depth > 5 {
-			http.Error(w, "depth must be between 1 and 5", http.StatusBadRequest)
+		parsedDepth, err := strconv.Atoi(depthStr)
+		if err != nil {
+			http.Error(w, "invalid depth", http.StatusBadRequest)
 			return
 		}
+
+		depth = parsedDepth
 	}
 
 	includeEmployees := true
 
 	includeEmployeesStr := r.URL.Query().Get("include_employees")
 	if includeEmployeesStr != "" {
-		includeEmployees, err = strconv.ParseBool(includeEmployeesStr)
+		parsedIncludeEmployees, err := strconv.ParseBool(includeEmployeesStr)
 		if err != nil {
-			http.Error(w, "include_employees must be true or false", http.StatusBadRequest)
+			http.Error(w, "invalid include_employees", http.StatusBadRequest)
 			return
 		}
+
+		includeEmployees = parsedIncludeEmployees
 	}
 
-	department, err := h.departmentRepo.GetByID(uint(id))
+	departmentTree, err := h.departmentService.GetDepartmentTree(
+		uint(id),
+		depth,
+		includeEmployees,
+	)
 	if err != nil {
-		http.Error(w, "department not found", http.StatusNotFound)
-		return
-	}
-
-	response, err := h.buildDepartmentTree(*department, depth, includeEmployees)
-	if err != nil {
-		http.Error(w, "Failed to build department tree", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	if err := json.NewEncoder(w).Encode(departmentTree); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		return
 	}
 }
 
-// helper func
-
-func (h *DepartmentHandler) buildDepartmentTree(
-	department model.Department,
-	depth int,
-	includeEmployees bool,
-) (DepartmentTreeResponse, error) {
-
-	response := DepartmentTreeResponse{
-		ID:        department.ID,
-		Name:      department.Name,
-		ParentID:  department.ParentID,
-		CreatedAt: department.CreatedAt,
-		Children:  []DepartmentTreeResponse{},
-	}
-
-	if includeEmployees {
-		employees, err := h.employeeRepo.GetEmployeesForTree(department.ID)
-		if err != nil {
-			return DepartmentTreeResponse{}, err
-		}
-
-		response.Employees = employees
-	}
-
-	if depth == 0 {
-		return response, nil
-	}
-
-	children, err := h.departmentRepo.GetChildren(department.ID)
-	if err != nil {
-		return DepartmentTreeResponse{}, err
-	}
-
-	for _, child := range children {
-		childTree, err := h.buildDepartmentTree(child, depth-1, includeEmployees)
-		if err != nil {
-			return DepartmentTreeResponse{}, err
-		}
-
-		response.Children = append(response.Children, childTree)
-	}
-
-	return response, nil
-}
-
-//patch department
+// patch department
 
 func (h *DepartmentHandler) PatchDepartment(w http.ResponseWriter, r *http.Request) {
 	idStr := r.PathValue("id")
@@ -347,6 +292,7 @@ func (h *DepartmentHandler) DeleteDepartment(w http.ResponseWriter, r *http.Requ
 			http.Error(w, "department cannot be reassigned inside its own subtree", http.StatusBadRequest)
 			return
 		}
+
 		if err := h.departmentRepo.ReassignAndDelete(uint(id), uint(reassignToID)); err != nil {
 			http.Error(w, "Failed to reassign and delete department", http.StatusInternalServerError)
 			return
@@ -368,6 +314,7 @@ func (h *DepartmentHandler) DeleteDepartment(w http.ResponseWriter, r *http.Requ
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 		return

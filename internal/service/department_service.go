@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/OmNom69/org-structure-api/internal/dto"
 	"github.com/OmNom69/org-structure-api/internal/model"
 	"github.com/OmNom69/org-structure-api/internal/repository"
 	"github.com/OmNom69/org-structure-api/internal/validator"
@@ -63,4 +64,73 @@ func (s *DepartmentService) CreateDepartment(input CreateDepartmentInput) (*mode
 	}
 
 	return &department, nil
+}
+
+// get department tree
+
+func (s *DepartmentService) GetDepartmentTree(
+	id uint,
+	depth int,
+	includeEmployees bool,
+) (*dto.DepartmentTreeResponse, error) {
+	if depth < 1 || depth > 5 {
+		return nil, ErrInvalidDepth
+	}
+
+	department, err := s.departmentRepo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	tree, err := s.buildDepartmentTree(department, depth, includeEmployees)
+	if err != nil {
+		return nil, err
+	}
+
+	return &tree, nil
+}
+
+// helper func
+
+func (s *DepartmentService) buildDepartmentTree(
+	department *model.Department,
+	depth int,
+	includeEmployees bool,
+) (dto.DepartmentTreeResponse, error) {
+	response := dto.DepartmentTreeResponse{
+		ID:        department.ID,
+		Name:      department.Name,
+		ParentID:  department.ParentID,
+		CreatedAt: department.CreatedAt,
+		Children:  []dto.DepartmentTreeResponse{},
+	}
+
+	if includeEmployees {
+		employees, err := s.employeeRepo.GetEmployeesForTree(department.ID)
+		if err != nil {
+			return dto.DepartmentTreeResponse{}, err
+		}
+
+		response.Employees = employees
+	}
+
+	if depth <= 0 {
+		return response, nil
+	}
+
+	children, err := s.departmentRepo.GetChildren(department.ID)
+	if err != nil {
+		return dto.DepartmentTreeResponse{}, err
+	}
+
+	for _, child := range children {
+		childTree, err := s.buildDepartmentTree(&child, depth-1, includeEmployees)
+		if err != nil {
+			return dto.DepartmentTreeResponse{}, err
+		}
+
+		response.Children = append(response.Children, childTree)
+	}
+
+	return response, nil
 }

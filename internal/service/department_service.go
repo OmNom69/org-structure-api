@@ -27,6 +27,12 @@ type CreateDepartmentInput struct {
 	ParentID *uint
 }
 
+type DeleteDepartmentInput struct {
+	ID                     uint
+	Mode                   string
+	ReassignToDepartmentID *uint
+}
+
 // create department
 
 func (s *DepartmentService) CreateDepartment(input CreateDepartmentInput) (*model.Department, error) {
@@ -133,4 +139,71 @@ func (s *DepartmentService) buildDepartmentTree(
 	}
 
 	return response, nil
+}
+
+// delete department
+
+func (s *DepartmentService) DeleteDepartment(input DeleteDepartmentInput) (*dto.DeleteDepartmentResponse, error) {
+	if input.ID == 0 {
+		return nil, ErrInvalidDepartmentID
+	}
+
+	if _, err := s.departmentRepo.GetByID(input.ID); err != nil {
+		return nil, ErrDepartmentNotFound
+	}
+
+	switch input.Mode {
+	case "cascade":
+		if err := s.departmentRepo.DeleteByID(input.ID); err != nil {
+			return nil, err
+		}
+
+		return &dto.DeleteDepartmentResponse{
+			Message: "department deleted",
+			ID:      input.ID,
+			Mode:    input.Mode,
+		}, nil
+
+	case "reassign":
+		if input.ReassignToDepartmentID == nil {
+			return nil, ErrReassignTargetRequired
+		}
+
+		reassignToID := *input.ReassignToDepartmentID
+
+		if reassignToID == 0 {
+			return nil, ErrInvalidDepartmentID
+		}
+
+		if reassignToID == input.ID {
+			return nil, ErrCannotReassignToSelf
+		}
+
+		if _, err := s.departmentRepo.GetByID(reassignToID); err != nil {
+			return nil, ErrReassignTargetNotFound
+		}
+
+		wouldCreateCycle, err := s.departmentRepo.WouldCreateCycle(input.ID, reassignToID)
+		if err != nil {
+			return nil, err
+		}
+
+		if wouldCreateCycle {
+			return nil, ErrDepartmentWouldCreateCycle
+		}
+
+		if err := s.departmentRepo.ReassignAndDelete(input.ID, reassignToID); err != nil {
+			return nil, err
+		}
+
+		return &dto.DeleteDepartmentResponse{
+			Message:                "department deleted",
+			ID:                     input.ID,
+			Mode:                   input.Mode,
+			ReassignToDepartmentID: input.ReassignToDepartmentID,
+		}, nil
+
+	default:
+		return nil, ErrInvalidDeleteMode
+	}
 }

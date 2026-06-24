@@ -245,72 +245,30 @@ func (h *DepartmentHandler) DeleteDepartment(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if _, err := h.departmentRepo.GetByID(uint(id)); err != nil {
-		http.Error(w, "department not found", http.StatusNotFound)
-		return
-	}
-
 	mode := r.URL.Query().Get("mode")
 
-	switch mode {
-	case "cascade":
-		if err := h.departmentRepo.DeleteByID(uint(id)); err != nil {
-			http.Error(w, "Failed to delete department", http.StatusInternalServerError)
-			return
-		}
+	var reassignToDepartmentID *uint
 
-	case "reassign":
-		reassignToStr := r.URL.Query().Get("reassign_to_department_id")
-		if reassignToStr == "" {
-			http.Error(w, "reassign_to_department_id is required", http.StatusBadRequest)
-			return
-		}
-
+	reassignToStr := r.URL.Query().Get("reassign_to_department_id")
+	if reassignToStr != "" {
 		reassignToID, err := strconv.Atoi(reassignToStr)
 		if err != nil || reassignToID <= 0 {
 			http.Error(w, "invalid reassign_to_department_id", http.StatusBadRequest)
 			return
 		}
 
-		if reassignToID == id {
-			http.Error(w, "cannot reassign department to itself", http.StatusBadRequest)
-			return
-		}
+		id := uint(reassignToID)
+		reassignToDepartmentID = &id
+	}
 
-		if _, err := h.departmentRepo.GetByID(uint(reassignToID)); err != nil {
-			http.Error(w, "reassign target department not found", http.StatusNotFound)
-			return
-		}
-
-		wouldCreateCycle, err := h.departmentRepo.WouldCreateCycle(uint(id), uint(reassignToID))
-		if err != nil {
-			http.Error(w, "Failed to check department cycle", http.StatusInternalServerError)
-			return
-		}
-
-		if wouldCreateCycle {
-			http.Error(w, "department cannot be reassigned inside its own subtree", http.StatusBadRequest)
-			return
-		}
-
-		if err := h.departmentRepo.ReassignAndDelete(uint(id), uint(reassignToID)); err != nil {
-			http.Error(w, "Failed to reassign and delete department", http.StatusInternalServerError)
-			return
-		}
-
-	default:
-		http.Error(w, "invalid mode", http.StatusBadRequest)
+	response, err := h.departmentService.DeleteDepartment(service.DeleteDepartmentInput{
+		ID:                     uint(id),
+		Mode:                   mode,
+		ReassignToDepartmentID: reassignToDepartmentID,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), departmentServiceErrorStatus(err))
 		return
-	}
-
-	response := map[string]any{
-		"message": "department deleted",
-		"id":      id,
-		"mode":    mode,
-	}
-
-	if mode == "reassign" {
-		response["reassign_to_department_id"] = r.URL.Query().Get("reassign_to_department_id")
 	}
 
 	w.Header().Set("Content-Type", "application/json")

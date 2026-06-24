@@ -14,3 +14,10 @@ type DepartmentTreeResponse struct {
 	Employees []model.Employee         `json:"employees,omitempty"`
 	Children  []DepartmentTreeResponse `json:"children"`
 }
+
+type DeleteDepartmentResponse struct {
+	Message                string `json:"message"`
+	ID                     uint   `json:"id"`
+	Mode                   string `json:"mode"`
+	ReassignToDepartmentID *uint  `json:"reassign_to_department_id,omitempty"`
+}

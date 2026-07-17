@@ -1,20 +1,21 @@
 package service
 
 import (
+	"context"
+
 	"github.com/OmNom69/org-structure-api/internal/dto"
 	"github.com/OmNom69/org-structure-api/internal/model"
-	"github.com/OmNom69/org-structure-api/internal/repository"
 	"github.com/OmNom69/org-structure-api/internal/validator"
 )
 
 type DepartmentService struct {
-	departmentRepo *repository.DepartmentRepository
-	employeeRepo   *repository.EmployeeRepository
+	departmentRepo DepartmentRepository
+	employeeRepo   EmployeeRepository
 }
 
 func NewDepartmentService(
-	departmentRepo *repository.DepartmentRepository,
-	employeeRepo *repository.EmployeeRepository,
+	departmentRepo DepartmentRepository,
+	employeeRepo EmployeeRepository,
 ) *DepartmentService {
 	return &DepartmentService{
 		departmentRepo: departmentRepo,
@@ -42,23 +43,23 @@ type PatchDepartmentInput struct {
 
 // create department
 
-func (s *DepartmentService) CreateDepartment(input CreateDepartmentInput) (*model.Department, error) {
+func (s *DepartmentService) CreateDepartment(ctx context.Context, input CreateDepartmentInput) (*model.Department, error) {
 	name, err := validator.RequiredString(input.Name, "name")
 	if err != nil {
-		return nil, err
+		return nil, wrapValidationError(err)
 	}
 
 	if input.ParentID != nil {
 		if *input.ParentID == 0 {
-			return nil, ErrInvalidDepartmentID
+			return nil, ErrInvalidParentDepartmentID
 		}
 
-		if _, err := s.departmentRepo.GetByID(*input.ParentID); err != nil {
-			return nil, err
+		if _, err := s.departmentRepo.GetByID(ctx, *input.ParentID); err != nil {
+			return nil, mapStorageError(err, ErrParentDepartmentNotFound)
 		}
 	}
 
-	exists, err := s.departmentRepo.ExistsByNameAndParent(name, input.ParentID)
+	exists, err := s.departmentRepo.ExistsByNameAndParent(ctx, name, input.ParentID)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +73,7 @@ func (s *DepartmentService) CreateDepartment(input CreateDepartmentInput) (*mode
 		ParentID: input.ParentID,
 	}
 
-	if err := s.departmentRepo.Create(&department); err != nil {
+	if err := s.departmentRepo.Create(ctx, &department); err != nil {
 		return nil, err
 	}
 
@@ -82,20 +83,25 @@ func (s *DepartmentService) CreateDepartment(input CreateDepartmentInput) (*mode
 // get department tree
 
 func (s *DepartmentService) GetDepartmentTree(
+	ctx context.Context,
 	id uint,
 	depth int,
 	includeEmployees bool,
 ) (*dto.DepartmentTreeResponse, error) {
+	if id == 0 {
+		return nil, ErrInvalidDepartmentID
+	}
+
 	if depth < 1 || depth > 5 {
 		return nil, ErrInvalidDepth
 	}
 
-	department, err := s.departmentRepo.GetByID(id)
+	department, err := s.departmentRepo.GetByID(ctx, id)
 	if err != nil {
-		return nil, err
+		return nil, mapStorageError(err, ErrDepartmentNotFound)
 	}
 
-	tree, err := s.buildDepartmentTree(department, depth, includeEmployees)
+	tree, err := s.buildDepartmentTree(ctx, department, depth, includeEmployees)
 	if err != nil {
 		return nil, err
 	}
@@ -106,6 +112,7 @@ func (s *DepartmentService) GetDepartmentTree(
 // helper func
 
 func (s *DepartmentService) buildDepartmentTree(
+	ctx context.Context,
 	department *model.Department,
 	depth int,
 	includeEmployees bool,
@@ -119,7 +126,7 @@ func (s *DepartmentService) buildDepartmentTree(
 	}
 
 	if includeEmployees {
-		employees, err := s.employeeRepo.GetEmployeesForTree(department.ID)
+		employees, err := s.employeeRepo.GetEmployeesForTree(ctx, department.ID)
 		if err != nil {
 			return dto.DepartmentTreeResponse{}, err
 		}
@@ -131,13 +138,13 @@ func (s *DepartmentService) buildDepartmentTree(
 		return response, nil
 	}
 
-	children, err := s.departmentRepo.GetChildren(department.ID)
+	children, err := s.departmentRepo.GetChildren(ctx, department.ID)
 	if err != nil {
 		return dto.DepartmentTreeResponse{}, err
 	}
 
 	for _, child := range children {
-		childTree, err := s.buildDepartmentTree(&child, depth-1, includeEmployees)
+		childTree, err := s.buildDepartmentTree(ctx, &child, depth-1, includeEmployees)
 		if err != nil {
 			return dto.DepartmentTreeResponse{}, err
 		}
@@ -150,18 +157,18 @@ func (s *DepartmentService) buildDepartmentTree(
 
 // delete department
 
-func (s *DepartmentService) DeleteDepartment(input DeleteDepartmentInput) (*dto.DeleteDepartmentResponse, error) {
+func (s *DepartmentService) DeleteDepartment(ctx context.Context, input DeleteDepartmentInput) (*dto.DeleteDepartmentResponse, error) {
 	if input.ID == 0 {
 		return nil, ErrInvalidDepartmentID
 	}
 
-	if _, err := s.departmentRepo.GetByID(input.ID); err != nil {
-		return nil, ErrDepartmentNotFound
+	if _, err := s.departmentRepo.GetByID(ctx, input.ID); err != nil {
+		return nil, mapStorageError(err, ErrDepartmentNotFound)
 	}
 
 	switch input.Mode {
 	case "cascade":
-		if err := s.departmentRepo.DeleteByID(input.ID); err != nil {
+		if err := s.departmentRepo.DeleteByID(ctx, input.ID); err != nil {
 			return nil, err
 		}
 
@@ -186,11 +193,11 @@ func (s *DepartmentService) DeleteDepartment(input DeleteDepartmentInput) (*dto.
 			return nil, ErrCannotReassignToSelf
 		}
 
-		if _, err := s.departmentRepo.GetByID(reassignToID); err != nil {
-			return nil, ErrReassignTargetNotFound
+		if _, err := s.departmentRepo.GetByID(ctx, reassignToID); err != nil {
+			return nil, mapStorageError(err, ErrReassignTargetNotFound)
 		}
 
-		wouldCreateCycle, err := s.departmentRepo.WouldCreateCycle(input.ID, reassignToID)
+		wouldCreateCycle, err := s.departmentRepo.WouldCreateCycle(ctx, input.ID, reassignToID)
 		if err != nil {
 			return nil, err
 		}
@@ -199,7 +206,7 @@ func (s *DepartmentService) DeleteDepartment(input DeleteDepartmentInput) (*dto.
 			return nil, ErrDepartmentWouldCreateCycle
 		}
 
-		if err := s.departmentRepo.ReassignAndDelete(input.ID, reassignToID); err != nil {
+		if err := s.departmentRepo.ReassignAndDelete(ctx, input.ID, reassignToID); err != nil {
 			return nil, err
 		}
 
@@ -217,14 +224,14 @@ func (s *DepartmentService) DeleteDepartment(input DeleteDepartmentInput) (*dto.
 
 // patch department
 
-func (s *DepartmentService) PatchDepartment(input PatchDepartmentInput) (*model.Department, error) {
+func (s *DepartmentService) PatchDepartment(ctx context.Context, input PatchDepartmentInput) (*model.Department, error) {
 	if input.ID == 0 {
 		return nil, ErrInvalidDepartmentID
 	}
 
-	department, err := s.departmentRepo.GetByID(input.ID)
+	department, err := s.departmentRepo.GetByID(ctx, input.ID)
 	if err != nil {
-		return nil, ErrDepartmentNotFound
+		return nil, mapStorageError(err, ErrDepartmentNotFound)
 	}
 
 	if input.Name == nil && !input.ParentIDSet {
@@ -234,7 +241,7 @@ func (s *DepartmentService) PatchDepartment(input PatchDepartmentInput) (*model.
 	if input.Name != nil {
 		name, err := validator.RequiredString(*input.Name, "name")
 		if err != nil {
-			return nil, err
+			return nil, wrapValidationError(err)
 		}
 
 		department.Name = name
@@ -254,11 +261,11 @@ func (s *DepartmentService) PatchDepartment(input PatchDepartmentInput) (*model.
 				return nil, ErrDepartmentCannotBeParentOfItself
 			}
 
-			if _, err := s.departmentRepo.GetByID(parentID); err != nil {
-				return nil, ErrParentDepartmentNotFound
+			if _, err := s.departmentRepo.GetByID(ctx, parentID); err != nil {
+				return nil, mapStorageError(err, ErrParentDepartmentNotFound)
 			}
 
-			wouldCreateCycle, err := s.departmentRepo.WouldCreateCycle(input.ID, parentID)
+			wouldCreateCycle, err := s.departmentRepo.WouldCreateCycle(ctx, input.ID, parentID)
 			if err != nil {
 				return nil, err
 			}
@@ -272,6 +279,7 @@ func (s *DepartmentService) PatchDepartment(input PatchDepartmentInput) (*model.
 	}
 
 	exists, err := s.departmentRepo.ExistsByNameAndParentExceptID(
+		ctx,
 		department.Name,
 		department.ParentID,
 		department.ID,
@@ -284,7 +292,7 @@ func (s *DepartmentService) PatchDepartment(input PatchDepartmentInput) (*model.
 		return nil, ErrDepartmentAlreadyExists
 	}
 
-	if err := s.departmentRepo.Update(department); err != nil {
+	if err := s.departmentRepo.Update(ctx, department); err != nil {
 		return nil, err
 	}
 

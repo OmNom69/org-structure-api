@@ -5,25 +5,18 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/OmNom69/org-structure-api/internal/repository"
 	"github.com/OmNom69/org-structure-api/internal/service"
 )
 
 type DepartmentHandler struct {
 	departmentService *service.DepartmentService
-	departmentRepo    *repository.DepartmentRepository
-	employeeRepo      *repository.EmployeeRepository
 }
 
 func NewDepartmentHandler(
 	departmentService *service.DepartmentService,
-	departmentRepo *repository.DepartmentRepository,
-	employeeRepo *repository.EmployeeRepository,
 ) *DepartmentHandler {
 	return &DepartmentHandler{
 		departmentService: departmentService,
-		departmentRepo:    departmentRepo,
-		employeeRepo:      employeeRepo,
 	}
 }
 
@@ -42,12 +35,12 @@ func (h *DepartmentHandler) CreateDepartment(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	department, err := h.departmentService.CreateDepartment(service.CreateDepartmentInput{
+	department, err := h.departmentService.CreateDepartment(r.Context(), service.CreateDepartmentInput{
 		Name:     req.Name,
 		ParentID: req.ParentID,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeServiceError(w, err)
 		return
 	}
 
@@ -98,12 +91,13 @@ func (h *DepartmentHandler) GetDepartment(w http.ResponseWriter, r *http.Request
 	}
 
 	departmentTree, err := h.departmentService.GetDepartmentTree(
+		r.Context(),
 		uint(id),
 		depth,
 		includeEmployees,
 	)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeServiceError(w, err)
 		return
 	}
 
@@ -167,9 +161,9 @@ func (h *DepartmentHandler) PatchDepartment(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	department, err := h.departmentService.PatchDepartment(input)
+	department, err := h.departmentService.PatchDepartment(r.Context(), input)
 	if err != nil {
-		http.Error(w, err.Error(), departmentServiceErrorStatus(err))
+		writeServiceError(w, err)
 		return
 	}
 
@@ -208,13 +202,13 @@ func (h *DepartmentHandler) DeleteDepartment(w http.ResponseWriter, r *http.Requ
 		reassignToDepartmentID = &id
 	}
 
-	response, err := h.departmentService.DeleteDepartment(service.DeleteDepartmentInput{
+	response, err := h.departmentService.DeleteDepartment(r.Context(), service.DeleteDepartmentInput{
 		ID:                     uint(id),
 		Mode:                   mode,
 		ReassignToDepartmentID: reassignToDepartmentID,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), departmentServiceErrorStatus(err))
+		writeServiceError(w, err)
 		return
 	}
 

@@ -25,10 +25,10 @@ type CreateEmployeeRequest struct {
 }
 
 type PatchEmployeeRequest struct {
-	FullName     *string `json:"full_name"`
-	Position     *string `json:"position"`
-	DepartmentID *uint   `json:"department_id"`
-	HiredAt      *string `json:"hired_at"`
+	FullName     optionalJSONField[string] `json:"full_name"`
+	Position     optionalJSONField[string] `json:"position"`
+	DepartmentID optionalJSONField[uint]   `json:"department_id"`
+	HiredAt      optionalJSONField[string] `json:"hired_at"`
 }
 
 // create
@@ -49,14 +49,14 @@ func (h *EmployeeHandler) CreateEmployee(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	employee, err := h.employeeService.CreateEmployee(service.CreateEmployeeInput{
+	employee, err := h.employeeService.CreateEmployee(r.Context(), service.CreateEmployeeInput{
 		DepartmentID: uint(departmentID),
 		FullName:     req.FullName,
 		Position:     req.Position,
 		HiredAt:      req.HiredAt,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeServiceError(w, err)
 		return
 	}
 
@@ -87,15 +87,23 @@ func (h *EmployeeHandler) PatchEmployee(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	employee, err := h.employeeService.PatchEmployee(service.PatchEmployeeInput{
-		ID:           uint(id),
-		FullName:     req.FullName,
-		Position:     req.Position,
-		DepartmentID: req.DepartmentID,
-		HiredAt:      req.HiredAt,
+	employee, err := h.employeeService.PatchEmployee(r.Context(), service.PatchEmployeeInput{
+		ID: uint(id),
+
+		FullName:    req.FullName.Value,
+		FullNameSet: req.FullName.Set,
+
+		Position:    req.Position.Value,
+		PositionSet: req.Position.Set,
+
+		DepartmentID:    req.DepartmentID.Value,
+		DepartmentIDSet: req.DepartmentID.Set,
+
+		HiredAt:    req.HiredAt.Value,
+		HiredAtSet: req.HiredAt.Set,
 	})
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeServiceError(w, err)
 		return
 	}
 
@@ -110,9 +118,9 @@ func (h *EmployeeHandler) PatchEmployee(w http.ResponseWriter, r *http.Request) 
 // get all employees
 
 func (h *EmployeeHandler) GetEmployees(w http.ResponseWriter, r *http.Request) {
-	employees, err := h.employeeService.GetEmployees()
+	employees, err := h.employeeService.GetEmployees(r.Context())
 	if err != nil {
-		http.Error(w, "Failed to get employees", http.StatusInternalServerError)
+		writeServiceError(w, err)
 		return
 	}
 
@@ -135,9 +143,9 @@ func (h *EmployeeHandler) GetEmployee(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	employee, err := h.employeeService.GetEmployee(uint(id))
+	employee, err := h.employeeService.GetEmployee(r.Context(), uint(id))
 	if err != nil {
-		http.Error(w, "employee not found", http.StatusNotFound)
+		writeServiceError(w, err)
 		return
 	}
 
@@ -160,8 +168,8 @@ func (h *EmployeeHandler) DeleteEmployee(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.employeeService.DeleteEmployee(uint(id)); err != nil {
-		http.Error(w, "employee not found", http.StatusNotFound)
+	if err := h.employeeService.DeleteEmployee(r.Context(), uint(id)); err != nil {
+		writeServiceError(w, err)
 		return
 	}
 

@@ -1,25 +1,31 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/OmNom69/org-structure-api/internal/config"
 	"github.com/OmNom69/org-structure-api/internal/database"
 	"github.com/OmNom69/org-structure-api/internal/handler"
+	"github.com/OmNom69/org-structure-api/internal/middleware"
 	"github.com/OmNom69/org-structure-api/internal/repository"
 	"github.com/OmNom69/org-structure-api/internal/service"
 )
 
 func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+
 	cfg := config.Load()
 
 	db, err := database.Connect(cfg)
 	if err != nil {
-		log.Fatal(err)
+		logger.Error("failed to connect to database", slog.Any("error", err))
+
+		os.Exit(1)
 	}
 
-	log.Println("database connected")
+	logger.Info("database connected")
 
 	departmentRepo := repository.NewDepartmentRepository(db)
 	employeeRepo := repository.NewEmployeeRepository(db)
@@ -46,9 +52,14 @@ func main() {
 	router.HandleFunc("DELETE /employees/{id}", employeeHandler.DeleteEmployee)
 
 	addr := ":" + cfg.Port
-	log.Println("server started", addr)
 
-	if err := http.ListenAndServe(addr, router); err != nil {
-		log.Fatal(err)
+	handlerWithLogging := middleware.Logging(logger, router)
+
+	logger.Info("server started", slog.String("address", addr))
+
+	if err := http.ListenAndServe(addr, handlerWithLogging); err != nil {
+		logger.Error("server stopped", slog.Any("error", err))
+
+		os.Exit(1)
 	}
 }

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -10,13 +11,16 @@ import (
 
 type DepartmentHandler struct {
 	departmentService *service.DepartmentService
+	logger            *slog.Logger
 }
 
 func NewDepartmentHandler(
 	departmentService *service.DepartmentService,
+	logger *slog.Logger,
 ) *DepartmentHandler {
 	return &DepartmentHandler{
 		departmentService: departmentService,
+		logger:            logger,
 	}
 }
 
@@ -43,6 +47,12 @@ func (h *DepartmentHandler) CreateDepartment(w http.ResponseWriter, r *http.Requ
 		writeServiceError(w, err)
 		return
 	}
+	h.logger.InfoContext(
+		r.Context(),
+		"department created",
+		slog.Int("department_id", int(department.ID)),
+		slog.String("department_name", department.Name),
+	)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -167,6 +177,13 @@ func (h *DepartmentHandler) PatchDepartment(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	h.logger.InfoContext(
+		r.Context(),
+		"department updated",
+		slog.Int("department_id", int(department.ID)),
+		slog.String("department_name", department.Name),
+	)
+
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(department); err != nil {
@@ -198,8 +215,8 @@ func (h *DepartmentHandler) DeleteDepartment(w http.ResponseWriter, r *http.Requ
 			return
 		}
 
-		id := uint(reassignToID)
-		reassignToDepartmentID = &id
+		reassignID := uint(reassignToID)
+		reassignToDepartmentID = &reassignID
 	}
 
 	response, err := h.departmentService.DeleteDepartment(r.Context(), service.DeleteDepartmentInput{
@@ -211,6 +228,13 @@ func (h *DepartmentHandler) DeleteDepartment(w http.ResponseWriter, r *http.Requ
 		writeServiceError(w, err)
 		return
 	}
+
+	h.logger.InfoContext(
+		r.Context(),
+		"department deleted",
+		slog.Int("department_id", int(id)),
+		slog.String("mode", mode),
+	)
 
 	w.Header().Set("Content-Type", "application/json")
 

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -10,11 +11,13 @@ import (
 
 type EmployeeHandler struct {
 	employeeService *service.EmployeeService
+	logger          *slog.Logger
 }
 
-func NewEmployeeHandler(employeeService *service.EmployeeService) *EmployeeHandler {
+func NewEmployeeHandler(employeeService *service.EmployeeService, logger *slog.Logger) *EmployeeHandler {
 	return &EmployeeHandler{
 		employeeService: employeeService,
+		logger:          logger,
 	}
 }
 
@@ -60,6 +63,13 @@ func (h *EmployeeHandler) CreateEmployee(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	h.logger.InfoContext(
+		r.Context(),
+		"employee created",
+		slog.Int("employee_id", int(employee.ID)),
+		slog.Int("department_id", int(employee.DepartmentID)),
+	)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 
@@ -102,10 +112,18 @@ func (h *EmployeeHandler) PatchEmployee(w http.ResponseWriter, r *http.Request) 
 		HiredAt:    req.HiredAt.Value,
 		HiredAtSet: req.HiredAt.Set,
 	})
+
 	if err != nil {
 		writeServiceError(w, err)
 		return
 	}
+
+	h.logger.InfoContext(
+		r.Context(),
+		"employee updated",
+		slog.Int("employee_id", int(employee.ID)),
+		slog.Int("department_id", int(employee.DepartmentID)),
+	)
 
 	w.Header().Set("Content-Type", "application/json")
 
@@ -177,6 +195,12 @@ func (h *EmployeeHandler) DeleteEmployee(w http.ResponseWriter, r *http.Request)
 		"message": "employee deleted",
 		"id":      id,
 	}
+
+	h.logger.InfoContext(
+		r.Context(),
+		"employee deleted",
+		slog.Int("employee_id", id),
+	)
 
 	w.Header().Set("Content-Type", "application/json")
 

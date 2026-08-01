@@ -33,8 +33,8 @@ func main() {
 	employeeService := service.NewEmployeeService(employeeRepo, departmentRepo)
 	departmentService := service.NewDepartmentService(departmentRepo, employeeRepo)
 
-	departmentHandler := handler.NewDepartmentHandler(departmentService)
-	employeeHandler := handler.NewEmployeeHandler(employeeService)
+	departmentHandler := handler.NewDepartmentHandler(departmentService, logger)
+	employeeHandler := handler.NewEmployeeHandler(employeeService, logger)
 
 	router := http.NewServeMux()
 

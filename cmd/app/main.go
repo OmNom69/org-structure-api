@@ -35,6 +35,7 @@ func main() {
 
 	departmentHandler := handler.NewDepartmentHandler(departmentService, logger)
 	employeeHandler := handler.NewEmployeeHandler(employeeService, logger)
+	healthHandler := handler.NewHealthHandler(logger, db)
 
 	router := http.NewServeMux()
 
@@ -43,6 +44,9 @@ func main() {
 	router.HandleFunc("GET /departments/{id}", departmentHandler.GetDepartment)
 	router.HandleFunc("PATCH /departments/{id}", departmentHandler.PatchDepartment)
 	router.HandleFunc("DELETE /departments/{id}", departmentHandler.DeleteDepartment)
+
+	// health
+	router.HandleFunc("GET /health", healthHandler.Health)
 
 	// employee
 	router.HandleFunc("POST /departments/{id}/employees/", employeeHandler.CreateEmployee)

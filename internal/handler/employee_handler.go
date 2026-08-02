@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -10,11 +11,13 @@ import (
 
 type EmployeeHandler struct {
 	employeeService *service.EmployeeService
+	logger          *slog.Logger
 }
 
-func NewEmployeeHandler(employeeService *service.EmployeeService) *EmployeeHandler {
+func NewEmployeeHandler(employeeService *service.EmployeeService, logger *slog.Logger) *EmployeeHandler {
 	return &EmployeeHandler{
 		employeeService: employeeService,
+		logger:          logger,
 	}
 }
 
@@ -56,9 +59,22 @@ func (h *EmployeeHandler) CreateEmployee(w http.ResponseWriter, r *http.Request)
 		HiredAt:      req.HiredAt,
 	})
 	if err != nil {
-		writeServiceError(w, err)
+		writeServiceError(
+			r.Context(),
+			h.logger,
+			w,
+			err,
+			"create_employee",
+		)
 		return
 	}
+
+	h.logger.InfoContext(
+		r.Context(),
+		"employee created",
+		slog.Int("employee_id", int(employee.ID)),
+		slog.Int("department_id", int(employee.DepartmentID)),
+	)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
@@ -102,10 +118,24 @@ func (h *EmployeeHandler) PatchEmployee(w http.ResponseWriter, r *http.Request) 
 		HiredAt:    req.HiredAt.Value,
 		HiredAtSet: req.HiredAt.Set,
 	})
+
 	if err != nil {
-		writeServiceError(w, err)
+		writeServiceError(
+			r.Context(),
+			h.logger,
+			w,
+			err,
+			"patch_employee",
+		)
 		return
 	}
+
+	h.logger.InfoContext(
+		r.Context(),
+		"employee updated",
+		slog.Int("employee_id", int(employee.ID)),
+		slog.Int("department_id", int(employee.DepartmentID)),
+	)
 
 	w.Header().Set("Content-Type", "application/json")
 
@@ -120,7 +150,13 @@ func (h *EmployeeHandler) PatchEmployee(w http.ResponseWriter, r *http.Request) 
 func (h *EmployeeHandler) GetEmployees(w http.ResponseWriter, r *http.Request) {
 	employees, err := h.employeeService.GetEmployees(r.Context())
 	if err != nil {
-		writeServiceError(w, err)
+		writeServiceError(
+			r.Context(),
+			h.logger,
+			w,
+			err,
+			"get_employees",
+		)
 		return
 	}
 
@@ -145,7 +181,13 @@ func (h *EmployeeHandler) GetEmployee(w http.ResponseWriter, r *http.Request) {
 
 	employee, err := h.employeeService.GetEmployee(r.Context(), uint(id))
 	if err != nil {
-		writeServiceError(w, err)
+		writeServiceError(
+			r.Context(),
+			h.logger,
+			w,
+			err,
+			"get_employee",
+		)
 		return
 	}
 
@@ -169,7 +211,13 @@ func (h *EmployeeHandler) DeleteEmployee(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := h.employeeService.DeleteEmployee(r.Context(), uint(id)); err != nil {
-		writeServiceError(w, err)
+		writeServiceError(
+			r.Context(),
+			h.logger,
+			w,
+			err,
+			"delete_employee",
+		)
 		return
 	}
 
@@ -177,6 +225,12 @@ func (h *EmployeeHandler) DeleteEmployee(w http.ResponseWriter, r *http.Request)
 		"message": "employee deleted",
 		"id":      id,
 	}
+
+	h.logger.InfoContext(
+		r.Context(),
+		"employee deleted",
+		slog.Int("employee_id", id),
+	)
 
 	w.Header().Set("Content-Type", "application/json")
 

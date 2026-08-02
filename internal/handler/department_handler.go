@@ -44,7 +44,13 @@ func (h *DepartmentHandler) CreateDepartment(w http.ResponseWriter, r *http.Requ
 		ParentID: req.ParentID,
 	})
 	if err != nil {
-		writeServiceError(w, err)
+		writeServiceError(
+			r.Context(),
+			h.logger,
+			w,
+			err,
+			"create_department",
+		)
 		return
 	}
 	h.logger.InfoContext(
@@ -107,7 +113,13 @@ func (h *DepartmentHandler) GetDepartment(w http.ResponseWriter, r *http.Request
 		includeEmployees,
 	)
 	if err != nil {
-		writeServiceError(w, err)
+		writeServiceError(
+			r.Context(),
+			h.logger,
+			w,
+			err,
+			"get_department_tree",
+		)
 		return
 	}
 
@@ -173,7 +185,13 @@ func (h *DepartmentHandler) PatchDepartment(w http.ResponseWriter, r *http.Reque
 
 	department, err := h.departmentService.PatchDepartment(r.Context(), input)
 	if err != nil {
-		writeServiceError(w, err)
+		writeServiceError(
+			r.Context(),
+			h.logger,
+			w,
+			err,
+			"patch_department",
+		)
 		return
 	}
 
@@ -225,7 +243,13 @@ func (h *DepartmentHandler) DeleteDepartment(w http.ResponseWriter, r *http.Requ
 		ReassignToDepartmentID: reassignToDepartmentID,
 	})
 	if err != nil {
-		writeServiceError(w, err)
+		writeServiceError(
+			r.Context(),
+			h.logger,
+			w,
+			err,
+			"delete_department",
+		)
 		return
 	}
 

@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/OmNom69/org-structure-api/internal/service"
@@ -45,10 +46,27 @@ func serviceErrorStatus(err error) int {
 	}
 }
 
-func writeServiceError(w http.ResponseWriter, err error) {
+func writeServiceError(
+	ctx context.Context,
+	logger *slog.Logger,
+	w http.ResponseWriter,
+	err error,
+	operation string,
+) {
 	status := serviceErrorStatus(err)
 
+	if status >= http.StatusInternalServerError {
+		logger.ErrorContext(
+			ctx,
+			"service operation failed",
+			slog.String("operation", operation),
+			slog.Int("status", status),
+			slog.Any("error", err),
+		)
+	}
+
 	message := err.Error()
+
 	if status == http.StatusInternalServerError {
 		message = "internal server error"
 	}

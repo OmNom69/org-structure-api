@@ -35,14 +35,24 @@ func (h *DepartmentHandler) CreateDepartment(w http.ResponseWriter, r *http.Requ
 	var req CreateDepartmentRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		writeJSONError(
+			r.Context(),
+			h.logger,
+			w,
+			http.StatusBadRequest,
+			"invalid_request_body",
+			"invalid request body",
+		)
 		return
 	}
 
-	department, err := h.departmentService.CreateDepartment(r.Context(), service.CreateDepartmentInput{
-		Name:     req.Name,
-		ParentID: req.ParentID,
-	})
+	department, err := h.departmentService.CreateDepartment(
+		r.Context(),
+		service.CreateDepartmentInput{
+			Name:     req.Name,
+			ParentID: req.ParentID,
+		},
+	)
 	if err != nil {
 		writeServiceError(
 			r.Context(),
@@ -53,6 +63,7 @@ func (h *DepartmentHandler) CreateDepartment(w http.ResponseWriter, r *http.Requ
 		)
 		return
 	}
+
 	h.logger.InfoContext(
 		r.Context(),
 		"department created",
@@ -76,7 +87,14 @@ func (h *DepartmentHandler) GetDepartment(w http.ResponseWriter, r *http.Request
 
 	id, err := strconv.Atoi(idStr)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid department id", http.StatusBadRequest)
+		writeJSONError(
+			r.Context(),
+			h.logger,
+			w,
+			http.StatusBadRequest,
+			"invalid_department_id",
+			"invalid department id",
+		)
 		return
 	}
 
@@ -86,7 +104,14 @@ func (h *DepartmentHandler) GetDepartment(w http.ResponseWriter, r *http.Request
 	if depthStr != "" {
 		parsedDepth, err := strconv.Atoi(depthStr)
 		if err != nil {
-			http.Error(w, "invalid depth", http.StatusBadRequest)
+			writeJSONError(
+				r.Context(),
+				h.logger,
+				w,
+				http.StatusBadRequest,
+				"invalid_depth",
+				"invalid depth",
+			)
 			return
 		}
 
@@ -99,7 +124,14 @@ func (h *DepartmentHandler) GetDepartment(w http.ResponseWriter, r *http.Request
 	if includeEmployeesStr != "" {
 		parsedIncludeEmployees, err := strconv.ParseBool(includeEmployeesStr)
 		if err != nil {
-			http.Error(w, "invalid include_employees", http.StatusBadRequest)
+			writeJSONError(
+				r.Context(),
+				h.logger,
+				w,
+				http.StatusBadRequest,
+				"invalid_include_employees",
+				"invalid include_employees",
+			)
 			return
 		}
 
@@ -138,14 +170,28 @@ func (h *DepartmentHandler) PatchDepartment(w http.ResponseWriter, r *http.Reque
 
 	id, err := strconv.Atoi(idStr)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid department id", http.StatusBadRequest)
+		writeJSONError(
+			r.Context(),
+			h.logger,
+			w,
+			http.StatusBadRequest,
+			"invalid_department_id",
+			"invalid department id",
+		)
 		return
 	}
 
 	var raw map[string]json.RawMessage
 
 	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		writeJSONError(
+			r.Context(),
+			h.logger,
+			w,
+			http.StatusBadRequest,
+			"invalid_request_body",
+			"invalid request body",
+		)
 		return
 	}
 
@@ -158,7 +204,14 @@ func (h *DepartmentHandler) PatchDepartment(w http.ResponseWriter, r *http.Reque
 		var nameValue string
 
 		if err := json.Unmarshal(nameRaw, &nameValue); err != nil {
-			http.Error(w, "invalid name", http.StatusBadRequest)
+			writeJSONError(
+				r.Context(),
+				h.logger,
+				w,
+				http.StatusBadRequest,
+				"invalid_name",
+				"invalid name",
+			)
 			return
 		}
 
@@ -175,7 +228,14 @@ func (h *DepartmentHandler) PatchDepartment(w http.ResponseWriter, r *http.Reque
 			var parentID uint
 
 			if err := json.Unmarshal(parentRaw, &parentID); err != nil {
-				http.Error(w, "invalid parent_id", http.StatusBadRequest)
+				writeJSONError(
+					r.Context(),
+					h.logger,
+					w,
+					http.StatusBadRequest,
+					"invalid_parent_id",
+					"invalid parent_id",
+				)
 				return
 			}
 
@@ -217,7 +277,14 @@ func (h *DepartmentHandler) DeleteDepartment(w http.ResponseWriter, r *http.Requ
 
 	id, err := strconv.Atoi(idStr)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid department id", http.StatusBadRequest)
+		writeJSONError(
+			r.Context(),
+			h.logger,
+			w,
+			http.StatusBadRequest,
+			"invalid_department_id",
+			"invalid department id",
+		)
 		return
 	}
 
@@ -229,7 +296,14 @@ func (h *DepartmentHandler) DeleteDepartment(w http.ResponseWriter, r *http.Requ
 	if reassignToStr != "" {
 		reassignToID, err := strconv.Atoi(reassignToStr)
 		if err != nil || reassignToID <= 0 {
-			http.Error(w, "invalid reassign_to_department_id", http.StatusBadRequest)
+			writeJSONError(
+				r.Context(),
+				h.logger,
+				w,
+				http.StatusBadRequest,
+				"invalid_reassign_to_department_id",
+				"invalid reassign_to_department_id",
+			)
 			return
 		}
 
@@ -237,11 +311,14 @@ func (h *DepartmentHandler) DeleteDepartment(w http.ResponseWriter, r *http.Requ
 		reassignToDepartmentID = &reassignID
 	}
 
-	response, err := h.departmentService.DeleteDepartment(r.Context(), service.DeleteDepartmentInput{
-		ID:                     uint(id),
-		Mode:                   mode,
-		ReassignToDepartmentID: reassignToDepartmentID,
-	})
+	response, err := h.departmentService.DeleteDepartment(
+		r.Context(),
+		service.DeleteDepartmentInput{
+			ID:                     uint(id),
+			Mode:                   mode,
+			ReassignToDepartmentID: reassignToDepartmentID,
+		},
+	)
 	if err != nil {
 		writeServiceError(
 			r.Context(),

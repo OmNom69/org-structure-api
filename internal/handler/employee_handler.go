@@ -14,7 +14,10 @@ type EmployeeHandler struct {
 	logger          *slog.Logger
 }
 
-func NewEmployeeHandler(employeeService *service.EmployeeService, logger *slog.Logger) *EmployeeHandler {
+func NewEmployeeHandler(
+	employeeService *service.EmployeeService,
+	logger *slog.Logger,
+) *EmployeeHandler {
 	return &EmployeeHandler{
 		employeeService: employeeService,
 		logger:          logger,
@@ -41,23 +44,40 @@ func (h *EmployeeHandler) CreateEmployee(w http.ResponseWriter, r *http.Request)
 
 	departmentID, err := strconv.Atoi(departmentIDStr)
 	if err != nil || departmentID <= 0 {
-		http.Error(w, "invalid department id", http.StatusBadRequest)
+		writeJSONError(
+			r.Context(),
+			h.logger,
+			w,
+			http.StatusBadRequest,
+			"invalid_department_id",
+			"invalid department id",
+		)
 		return
 	}
 
 	var req CreateEmployeeRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Bad request", http.StatusBadRequest)
+		writeJSONError(
+			r.Context(),
+			h.logger,
+			w,
+			http.StatusBadRequest,
+			"invalid_request_body",
+			"invalid request body",
+		)
 		return
 	}
 
-	employee, err := h.employeeService.CreateEmployee(r.Context(), service.CreateEmployeeInput{
-		DepartmentID: uint(departmentID),
-		FullName:     req.FullName,
-		Position:     req.Position,
-		HiredAt:      req.HiredAt,
-	})
+	employee, err := h.employeeService.CreateEmployee(
+		r.Context(),
+		service.CreateEmployeeInput{
+			DepartmentID: uint(departmentID),
+			FullName:     req.FullName,
+			Position:     req.Position,
+			HiredAt:      req.HiredAt,
+		},
+	)
 	if err != nil {
 		writeServiceError(
 			r.Context(),
@@ -92,33 +112,49 @@ func (h *EmployeeHandler) PatchEmployee(w http.ResponseWriter, r *http.Request) 
 
 	id, err := strconv.Atoi(idStr)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid employee id", http.StatusBadRequest)
+		writeJSONError(
+			r.Context(),
+			h.logger,
+			w,
+			http.StatusBadRequest,
+			"invalid_employee_id",
+			"invalid employee id",
+		)
 		return
 	}
 
 	var req PatchEmployeeRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
+		writeJSONError(
+			r.Context(),
+			h.logger,
+			w,
+			http.StatusBadRequest,
+			"invalid_request_body",
+			"invalid request body",
+		)
 		return
 	}
 
-	employee, err := h.employeeService.PatchEmployee(r.Context(), service.PatchEmployeeInput{
-		ID: uint(id),
+	employee, err := h.employeeService.PatchEmployee(
+		r.Context(),
+		service.PatchEmployeeInput{
+			ID: uint(id),
 
-		FullName:    req.FullName.Value,
-		FullNameSet: req.FullName.Set,
+			FullName:    req.FullName.Value,
+			FullNameSet: req.FullName.Set,
 
-		Position:    req.Position.Value,
-		PositionSet: req.Position.Set,
+			Position:    req.Position.Value,
+			PositionSet: req.Position.Set,
 
-		DepartmentID:    req.DepartmentID.Value,
-		DepartmentIDSet: req.DepartmentID.Set,
+			DepartmentID:    req.DepartmentID.Value,
+			DepartmentIDSet: req.DepartmentID.Set,
 
-		HiredAt:    req.HiredAt.Value,
-		HiredAtSet: req.HiredAt.Set,
-	})
-
+			HiredAt:    req.HiredAt.Value,
+			HiredAtSet: req.HiredAt.Set,
+		},
+	)
 	if err != nil {
 		writeServiceError(
 			r.Context(),
@@ -175,7 +211,14 @@ func (h *EmployeeHandler) GetEmployee(w http.ResponseWriter, r *http.Request) {
 
 	id, err := strconv.Atoi(idStr)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid employee id", http.StatusBadRequest)
+		writeJSONError(
+			r.Context(),
+			h.logger,
+			w,
+			http.StatusBadRequest,
+			"invalid_employee_id",
+			"invalid employee id",
+		)
 		return
 	}
 
@@ -206,7 +249,14 @@ func (h *EmployeeHandler) DeleteEmployee(w http.ResponseWriter, r *http.Request)
 
 	id, err := strconv.Atoi(idStr)
 	if err != nil || id <= 0 {
-		http.Error(w, "invalid employee id", http.StatusBadRequest)
+		writeJSONError(
+			r.Context(),
+			h.logger,
+			w,
+			http.StatusBadRequest,
+			"invalid_employee_id",
+			"invalid employee id",
+		)
 		return
 	}
 

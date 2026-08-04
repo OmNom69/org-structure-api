@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/OmNom69/org-structure-api/internal/config"
 	"github.com/OmNom69/org-structure-api/internal/database"
@@ -59,11 +63,52 @@ func main() {
 
 	handlerWithLogging := middleware.Logging(logger, router)
 
-	logger.Info("server started", slog.String("address", addr))
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           handlerWithLogging,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 
-	if err := http.ListenAndServe(addr, handlerWithLogging); err != nil {
-		logger.Error("server stopped", slog.Any("error", err))
+	serverErrors := make(chan error, 1)
+
+	go func() {
+		logger.Info("starting server", slog.String("addr", addr))
+		serverErrors <- server.ListenAndServe()
+	}()
+
+	shutdownSignal, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stop()
+
+	select {
+	case err := <-serverErrors:
+		if err != nil && err != http.ErrServerClosed {
+			logger.Error("server stopped unexpectedly", slog.Any("error", err))
+
+			os.Exit(1)
+		}
+
+		return
+
+	case <-shutdownSignal.Done():
+		logger.Info("shutdown signal received")
+	}
+
+	shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownContext); err != nil {
+		logger.Error("graceful shutdown failed", slog.Any("error", err))
+
+		if closeErr := server.Close(); closeErr != nil {
+			logger.Error("failed to force server close", slog.Any("error", closeErr))
+		}
 
 		os.Exit(1)
 	}
+
+	logger.Info("server stopped gracefully")
 }

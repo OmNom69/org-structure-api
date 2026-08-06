@@ -74,7 +74,7 @@ func (s *DepartmentService) CreateDepartment(ctx context.Context, input CreateDe
 	}
 
 	if err := s.departmentRepo.Create(ctx, &department); err != nil {
-		return nil, err
+		return nil, mapStorageConflict(err, ErrDepartmentAlreadyExists)
 	}
 
 	return &department, nil
@@ -293,7 +293,7 @@ func (s *DepartmentService) PatchDepartment(ctx context.Context, input PatchDepa
 	}
 
 	if err := s.departmentRepo.Update(ctx, department); err != nil {
-		return nil, err
+		return nil, mapStorageConflict(err, ErrDepartmentAlreadyExists)
 	}
 
 	return department, nil

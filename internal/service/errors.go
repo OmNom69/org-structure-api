@@ -40,6 +40,14 @@ func mapStorageError(err error, notFoundErr error) error {
 	return err
 }
 
+func mapStorageConflict(err error, conflictErr error) error {
+	if errors.Is(err, storage.ErrAlreadyExists) {
+		return conflictErr
+	}
+
+	return err
+}
+
 func wrapValidationError(err error) error {
 	return fmt.Errorf("%w: %v", ErrValidation, err)
 }

@@ -21,7 +21,18 @@ func NewDepartmentRepository(db *gorm.DB) *DepartmentRepository {
 // create
 
 func (r *DepartmentRepository) Create(ctx context.Context, department *model.Department) error {
-	return r.db.WithContext(ctx).Create(department).Error
+	err := r.db.WithContext(ctx).Create(department).Error
+
+	switch {
+	case err == nil:
+		return nil
+
+	case errors.Is(err, gorm.ErrDuplicatedKey):
+		return storage.ErrAlreadyExists
+
+	default:
+		return fmt.Errorf("create department: %w", err)
+	}
 }
 
 // getByID
@@ -46,7 +57,18 @@ func (r *DepartmentRepository) GetByID(ctx context.Context, id uint) (*model.Dep
 // update
 
 func (r *DepartmentRepository) Update(ctx context.Context, department *model.Department) error {
-	return r.db.WithContext(ctx).Save(department).Error
+	err := r.db.WithContext(ctx).Save(department).Error
+
+	switch {
+	case err == nil:
+		return nil
+
+	case errors.Is(err, gorm.ErrDuplicatedKey):
+		return storage.ErrAlreadyExists
+
+	default:
+		return fmt.Errorf("update department %d: %w", department.ID, err)
+	}
 }
 
 // delete

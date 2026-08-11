@@ -44,7 +44,7 @@ func main() {
 	router := http.NewServeMux()
 
 	// department
-	router.HandleFunc("POST /departments/", departmentHandler.CreateDepartment)
+	router.HandleFunc("POST /departments", departmentHandler.CreateDepartment)
 	router.HandleFunc("GET /departments/{id}", departmentHandler.GetDepartment)
 	router.HandleFunc("PATCH /departments/{id}", departmentHandler.PatchDepartment)
 	router.HandleFunc("DELETE /departments/{id}", departmentHandler.DeleteDepartment)
@@ -53,9 +53,9 @@ func main() {
 	router.HandleFunc("GET /health", healthHandler.Health)
 
 	// employee
-	router.HandleFunc("POST /departments/{id}/employees/", employeeHandler.CreateEmployee)
+	router.HandleFunc("POST /departments/{id}/employees", employeeHandler.CreateEmployee)
 	router.HandleFunc("PATCH /employees/{id}", employeeHandler.PatchEmployee)
-	router.HandleFunc("GET /employees/", employeeHandler.GetEmployees)
+	router.HandleFunc("GET /employees", employeeHandler.GetEmployees)
 	router.HandleFunc("GET /employees/{id}", employeeHandler.GetEmployee)
 	router.HandleFunc("DELETE /employees/{id}", employeeHandler.DeleteEmployee)
 

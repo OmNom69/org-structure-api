@@ -84,7 +84,7 @@ func (r *DepartmentRepository) ReassignAndDelete(
 	fromDepartmentID uint,
 	toDepartmentID uint,
 ) error {
-	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&model.Department{}).
 			Where("parent_id = ?", fromDepartmentID).
 			Update("parent_id", toDepartmentID).Error; err != nil {
@@ -103,6 +103,22 @@ func (r *DepartmentRepository) ReassignAndDelete(
 
 		return nil
 	})
+
+	switch {
+	case err == nil:
+		return nil
+
+	case errors.Is(err, gorm.ErrDuplicatedKey):
+		return storage.ErrAlreadyExists
+
+	default:
+		return fmt.Errorf(
+			"reassign department %d to %d: %w",
+			fromDepartmentID,
+			toDepartmentID,
+			err,
+		)
+	}
 }
 
 // сhildren of the department

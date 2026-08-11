@@ -131,7 +131,7 @@ func (s *DepartmentService) buildDepartmentTree(
 			return dto.DepartmentTreeResponse{}, err
 		}
 
-		response.Employees = employees
+		response.Employees = &employees
 	}
 
 	if depth <= 0 {
@@ -207,7 +207,7 @@ func (s *DepartmentService) DeleteDepartment(ctx context.Context, input DeleteDe
 		}
 
 		if err := s.departmentRepo.ReassignAndDelete(ctx, input.ID, reassignToID); err != nil {
-			return nil, err
+			return nil, mapStorageConflict(err, ErrDepartmentAlreadyExists)
 		}
 
 		return &dto.DeleteDepartmentResponse{

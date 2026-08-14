@@ -1,12 +1,11 @@
 services:
   db:
     image: postgres:17-alpine
-    container_name: org_structure_db
     restart: unless-stopped
     env_file:
       - .env.docker
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -14,18 +13,70 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    networks:
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   app:
     build: .
-    container_name: org_structure_app
     restart: unless-stopped
     env_file:
       - .env.docker
-    ports:
-      - "8081:8080"
+    environment:
+      APP_PORT: "8080"
+    expose:
+      - "8080"
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health" ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    stop_grace_period: 20s
+    networks:
+      - edge
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  nginx:
+    image: nginx:1.30.4-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./deploy/nginx/conf.d/api.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/nginx-health" ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    stop_grace_period: 35s
+    networks:
+      - edge
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   postgres_data:
+
+networks:
+  edge:
+  backend:

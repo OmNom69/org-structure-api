@@ -14,6 +14,7 @@ API поддерживает работу с древовидной структ
 - GORM
 - Goose
 - Docker / Docker Compose
+- Nginx
 - `log/slog`
 - `testing`
 
@@ -26,12 +27,15 @@ API поддерживает работу с древовидной структ
 - единый JSON-формат ошибок;
 - структурированное логирование и HTTP middleware;
 - healthcheck приложения и PostgreSQL;
+- Nginx как единая внешняя точка входа;
 - graceful shutdown с использованием `context`, goroutine, channel и `select`.
 
 ## Архитектура
 
 ```text
 HTTP client
+    ↓
+Nginx reverse proxy
     ↓
 logging middleware
     ↓
@@ -52,6 +56,7 @@ PostgreSQL
 
 | Слой | Роль |
 | --- | --- |
+| `deploy/nginx` | Reverse proxy, внешний HTTP-вход, ограничения запросов и access-логи |
 | `cmd/app` | Создание зависимостей, регистрация маршрутов, запуск и завершение HTTP-сервера |
 | `handler` | Разбор path/query/body, вызов service-слоя, формирование HTTP-ответов |
 | `service` | Бизнес-логика, валидация и правила предметной области |
@@ -112,7 +117,10 @@ Service-слой зависит от repository-интерфейсов, а не 
 - скрытие деталей внутренних ошибок от клиента;
 - graceful shutdown при `Ctrl+C` и `SIGTERM`;
 - таймаут чтения HTTP-заголовков;
-- контейнеризация приложения и PostgreSQL;
+- контейнеризация Nginx, приложения и PostgreSQL;
+- закрытый от хоста порт Go-приложения;
+- ограничение размера и частоты запросов на уровне Nginx;
+- request ID и JSON access-логи Nginx;
 - версионирование схемы БД через Goose;
 - unit-тесты части `EmployeeService`.
 
@@ -252,6 +260,10 @@ DELETE /departments/{id}?mode=reassign&reassign_to_department_id=1
 - Docker Compose;
 - Goose — для применения миграций с компьютера.
 
+Отдельно устанавливать Nginx не требуется: Docker Compose скачивает официальный образ автоматически.
+
+Compose использует официальный образ `nginx:1.30.4-alpine` с явно закреплённой версией вместо плавающего тега `stable-alpine`.
+
 ### 1. Клонировать репозиторий
 
 ```bash
@@ -290,7 +302,7 @@ POSTGRES_PASSWORD=your_password
 POSTGRES_DB=org_structure
 ```
 
-### 3. Запустить приложение и PostgreSQL
+### 3. Запустить Nginx, приложение и PostgreSQL
 
 ```bash
 docker compose up --build -d
@@ -299,47 +311,69 @@ docker compose up --build -d
 Проверить состояние контейнеров:
 
 ```bash
-docker compose ps 
+docker compose ps
 ```
 
 После запуска:
 
 | Сервис | Адрес с компьютера |
 | --- | --- |
-| API | `http://localhost:8081` |
-| PostgreSQL | `localhost:5433` |
+| API через Nginx | `http://localhost:8080` |
+| Healthcheck Nginx | `http://localhost:8080/nginx-health` |
+| PostgreSQL для Goose | `127.0.0.1:5433` |
 
-Проброс портов:
+Маршрут HTTP-запроса:
 
 ```text
-localhost:8081 → app:8080
-localhost:5433 → db:5432
+client → 127.0.0.1:8080 → nginx:80 → app:8080
+Goose  → 127.0.0.1:5433 ───────────→ db:5432
 ```
+
+Порт `app:8080` доступен только контейнерам во внутренних сетях Compose и не публикуется на компьютере. Поэтому приложение нельзя вызвать в обход Nginx.
 
 ### 4. Применить миграции
 
-Goose запускается с компьютера, поэтому используется `localhost:5433`:
+Goose запускается с компьютера, поэтому используется `127.0.0.1:5433`:
 
 ```bash
-goose -dir migrations postgres "host=localhost port=5433 user=postgres password=your_password dbname=org_structure sslmode=disable" up
+goose -dir migrations postgres "host=127.0.0.1 port=5433 user=postgres password=your_password dbname=org_structure sslmode=disable" up
 ```
 
 Проверить статус миграций:
 
 ```bash
-goose -dir migrations postgres "host=localhost port=5433 user=postgres password=your_password dbname=org_structure sslmode=disable" status
+goose -dir migrations postgres "host=127.0.0.1 port=5433 user=postgres password=your_password dbname=org_structure sslmode=disable" status
 ```
 
 Откатить последнюю миграцию:
 
 ```bash
-goose -dir migrations postgres "host=localhost port=5433 user=postgres password=your_password dbname=org_structure sslmode=disable" down
+goose -dir migrations postgres "host=127.0.0.1 port=5433 user=postgres password=your_password dbname=org_structure sslmode=disable" down
 ```
 
 ### 5. Проверить healthcheck
 
+Проверить сам Nginx:
+
 ```http
-GET http://localhost:8081/health
+GET http://localhost:8080/nginx-health
+```
+
+Ответ `200 OK`:
+
+```json
+{
+  "status": "ok",
+  "nginx": "available"
+}
+```
+
+Он означает, что Nginx запущен, прочитал конфигурацию и принимает HTTP-запросы. Этот endpoint не проверяет Go-приложение и PostgreSQL.
+
+Проверить полный маршрут `Nginx → Go → PostgreSQL`:
+
+```http
+GET http://localhost:8080/health
 ```
 
 Успешный ответ:
@@ -374,25 +408,59 @@ GET http://localhost:8081/health
 
 В `.env.docker` также используются `POSTGRES_USER`, `POSTGRES_PASSWORD` и `POSTGRES_DB` для инициализации контейнера PostgreSQL.
 
+В Compose `APP_PORT=8080` является фиксированным внутренним контрактом между Nginx и Go-приложением. Изменение значения в локальном `.env.docker` намеренно не меняет этот порт.
+
+Порты для локального запуска заданы в `docker-compose.yml`: Nginx слушает `127.0.0.1:8080`, а PostgreSQL — `127.0.0.1:5433`. Привязка к `127.0.0.1` не открывает эти порты другим устройствам локальной сети.
+
+## Nginx
+
+Nginx является единственной внешней HTTP-точкой входа. Конфигурация находится в `deploy/nginx/conf.d/api.conf`.
+
+На первом этапе настроены:
+
+- проксирование исходного URI в `app:8080`;
+- передача `Host`, `X-Real-IP`, `X-Forwarded-For` и `X-Forwarded-Proto`;
+- генерация `X-Request-ID`;
+- JSON access-логи в stdout;
+- ограничение request body до `256 KiB`;
+- таймауты соединения с upstream;
+- buffering запросов и ответов;
+- gzip для JSON-ответов от `1 KiB`;
+- отдельный `GET /nginx-health`;
+- rate limit `10 r/s` с burst `20` в режиме `dry-run`.
+
+Compose даёт Nginx до 35 секунд на graceful shutdown, чтобы уже принятые запросы успели завершиться в пределах настроенного proxy timeout.
+
+В режиме `dry-run` Nginx записывает превышение лимита в лог, но не блокирует запрос. Перед реальным включением лимита значения нужно подобрать по результатам нагрузочного теста.
+
+Кэширование API намеренно не включено: у API есть связанные операции чтения и изменения данных, но пока нет политики кэширования и инвалидации.
+
+Проверить синтаксис конфигурации в запущенном контейнере:
+
+```bash
+docker compose exec nginx nginx -t
+```
+
 ## API
 
 Базовый адрес при запуске через Docker:
 
 ```text
-http://localhost:8081
+http://localhost:8080
 ```
 
 ### Краткая таблица endpoints
 
 | Метод | Endpoint | Назначение |
 | --- | --- | --- |
+| `GET` | `/nginx-health` | Проверить только Nginx |
 | `GET` | `/health` | Проверить приложение и PostgreSQL |
-| `POST` | `/departments/` | Создать подразделение |
+| `POST` | `/departments` | Создать подразделение |
 | `GET` | `/departments/{id}` | Получить дерево подразделения |
 | `PATCH` | `/departments/{id}` | Обновить или перенести подразделение |
 | `DELETE` | `/departments/{id}` | Удалить подразделение |
-| `POST` | `/departments/{id}/employees/` | Создать сотрудника в подразделении |
-| `GET` | `/employees/` | Получить всех сотрудников |
+| `POST` | `/departments/{id}/employees` | Создать сотрудника в подразделении |
+| `GET` | `/employees` | Получить всех сотрудников |
 | `GET` | `/employees/{id}` | Получить сотрудника |
 | `PATCH` | `/employees/{id}` | Обновить сотрудника |
 | `DELETE` | `/employees/{id}` | Удалить сотрудника |
@@ -408,7 +476,7 @@ GET /health
 ### Создать подразделение
 
 ```http
-POST /departments/
+POST /departments
 ```
 
 Корневое подразделение:
@@ -565,7 +633,7 @@ DELETE /departments/{id}?mode=reassign&reassign_to_department_id=1
 ### Создать сотрудника
 
 ```http
-POST /departments/{id}/employees/
+POST /departments/{id}/employees
 ```
 
 ```json
@@ -583,7 +651,7 @@ POST /departments/{id}/employees/
 ### Получить всех сотрудников
 
 ```http
-GET /employees/
+GET /employees
 ```
 
 Пример ответа:
@@ -746,14 +814,19 @@ DELETE /employees/{id}
 Просмотреть последние логи:
 
 ```bash
+docker compose logs nginx --tail 50
 docker compose logs app --tail 50
 ```
 
-Следить за логами в реальном времени:
+Следить за логами Nginx и приложения в реальном времени:
 
 ```bash
-docker compose logs app -f
+docker compose logs -f nginx app
 ```
+
+Nginx пишет адрес клиента, который он видит, HTTP-метод, путь без query string, статус, request ID, полное время запроса, адрес upstream и время ответа приложения. Go-приложение продолжает писать события бизнес-логики и внутренние ошибки.
+
+На первом этапе Nginx передаёт `X-Request-ID` приложению и клиенту, но Go ещё не добавляет его в свои логи. Полная корреляция логов относится к следующему этапу.
 
 ## Graceful shutdown
 
@@ -769,6 +842,8 @@ HTTP-сервер обрабатывает `Ctrl+C` и `SIGTERM`.
 
 Также настроен `ReadHeaderTimeout` в 5 секунд, чтобы клиент не мог бесконечно удерживать соединение, слишком медленно отправляя HTTP-заголовки.
 
+В Compose для приложения установлен `stop_grace_period: 20s`. Это даёт Go-серверу запас поверх его внутреннего десятисекундного shutdown timeout до принудительной остановки контейнера.
+
 Проверка через Docker:
 
 ```bash
@@ -781,6 +856,12 @@ docker compose logs app
 ```text
 shutdown signal received
 server stopped gracefully
+```
+
+Пока приложение остановлено, Nginx остаётся доступен, но запрос к `/health` вернёт ошибку upstream. Запустить приложение снова:
+
+```bash
+docker compose start app
 ```
 
 ## Тесты
@@ -801,6 +882,14 @@ go test ./...
 
 Тесты не требуют запуска PostgreSQL, потому что service-слой зависит от repository-интерфейсов.
 
+Проверить инфраструктурную конфигурацию:
+
+```bash
+docker compose config --quiet
+docker compose exec nginx nginx -t
+docker compose ps
+```
+
 ## Структура проекта
 
 ```text
@@ -808,6 +897,10 @@ org-structure-api/
 ├── cmd/
 │   └── app/
 │       └── main.go
+├── deploy/
+│   └── nginx/
+│       └── conf.d/
+│           └── api.conf
 ├── internal/
 │   ├── config/
 │   │   └── config.go
@@ -840,7 +933,8 @@ org-structure-api/
 │   └── validator/
 │       └── validation.go
 ├── migrations/
-│   └── 01_create_departments_and_employees.sql
+│   ├── 01_create_departments_and_employees.sql
+│   └── 02_add_indexes_and_constraints.sql
 ├── .dockerignore
 ├── .env.docker.example
 ├── .env.example
@@ -862,4 +956,11 @@ org-structure-api/
 - OpenAPI / Swagger;
 - integration-тесты repository-слоя с PostgreSQL;
 - единый helper для кодирования успешных JSON-ответов;
-- корректное закрытие пула соединений с PostgreSQL при завершении приложения.
+- корректное закрытие и настройка пула соединений с PostgreSQL;
+- отдельные liveness- и readiness-endpoints;
+- request deadline и дополнительные HTTP-таймауты в Go;
+- ограничение request body также на уровне Go;
+- request-ID middleware и доверие proxy-заголовкам только от Nginx;
+- включение rate limit после нагрузочного теста;
+- TLS и аутентификация перед публикацией в production;
+- CI-проверки Nginx, Docker Compose и HTTP smoke-test.

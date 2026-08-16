@@ -13,15 +13,18 @@ import (
 type EmployeeService struct {
 	employeeRepo   EmployeeRepository
 	departmentRepo DepartmentRepository
+	cacheStore     CacheStore
 }
 
 func NewEmployeeService(
 	employeeRepo EmployeeRepository,
 	departmentRepo DepartmentRepository,
+	cacheStore CacheStore,
 ) *EmployeeService {
 	return &EmployeeService{
 		employeeRepo:   employeeRepo,
 		departmentRepo: departmentRepo,
+		cacheStore:     cacheStore,
 	}
 }
 
@@ -91,13 +94,15 @@ func (s *EmployeeService) CreateEmployee(ctx context.Context, input CreateEmploy
 		return nil, err
 	}
 
+	bumpDepartmentTreeEpoch(ctx, s.cacheStore)
+
 	return &employee, nil
 }
 
 // get all employees
 
 func (s *EmployeeService) GetEmployees(ctx context.Context) ([]model.Employee, error) {
-	return s.employeeRepo.GetAllEmployees(ctx)
+	return s.employeeRepo.List(ctx)
 }
 
 // get employee by ID
@@ -125,6 +130,8 @@ func (s *EmployeeService) DeleteEmployee(ctx context.Context, id uint) error {
 	if err := s.employeeRepo.DeleteByID(ctx, id); err != nil {
 		return err
 	}
+
+	bumpDepartmentTreeEpoch(ctx, s.cacheStore)
 
 	return nil
 }
@@ -206,6 +213,8 @@ func (s *EmployeeService) PatchEmployee(ctx context.Context, input PatchEmployee
 	if err := s.employeeRepo.Update(ctx, employee); err != nil {
 		return nil, err
 	}
+
+	bumpDepartmentTreeEpoch(ctx, s.cacheStore)
 
 	return employee, nil
 }

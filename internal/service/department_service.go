@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/OmNom69/org-structure-api/internal/dto"
 	"github.com/OmNom69/org-structure-api/internal/model"
@@ -11,15 +12,19 @@ import (
 type DepartmentService struct {
 	departmentRepo DepartmentRepository
 	employeeRepo   EmployeeRepository
+	treeCache      departmentTreeCache
 }
 
 func NewDepartmentService(
 	departmentRepo DepartmentRepository,
 	employeeRepo EmployeeRepository,
+	cacheStore CacheStore,
+	cacheTTL time.Duration,
 ) *DepartmentService {
 	return &DepartmentService{
 		departmentRepo: departmentRepo,
 		employeeRepo:   employeeRepo,
+		treeCache:      newDepartmentTreeCache(cacheStore, cacheTTL),
 	}
 }
 
@@ -40,8 +45,6 @@ type PatchDepartmentInput struct {
 	ParentID    *uint
 	ParentIDSet bool
 }
-
-// create department
 
 func (s *DepartmentService) CreateDepartment(ctx context.Context, input CreateDepartmentInput) (*model.Department, error) {
 	name, err := validator.RequiredString(input.Name, "name")
@@ -77,17 +80,12 @@ func (s *DepartmentService) CreateDepartment(ctx context.Context, input CreateDe
 		return nil, mapStorageConflict(err, ErrDepartmentAlreadyExists)
 	}
 
+	bumpDepartmentTreeEpoch(ctx, s.treeCache.store)
+
 	return &department, nil
 }
 
-// get department tree
-
-func (s *DepartmentService) GetDepartmentTree(
-	ctx context.Context,
-	id uint,
-	depth int,
-	includeEmployees bool,
-) (*dto.DepartmentTreeResponse, error) {
+func (s *DepartmentService) GetDepartmentTree(ctx context.Context, id uint, depth int, includeEmployees bool) (*dto.DepartmentTreeResponse, error) {
 	if id == 0 {
 		return nil, ErrInvalidDepartmentID
 	}
@@ -96,27 +94,14 @@ func (s *DepartmentService) GetDepartmentTree(
 		return nil, ErrInvalidDepth
 	}
 
-	department, err := s.departmentRepo.GetByID(ctx, id)
-	if err != nil {
-		return nil, mapStorageError(err, ErrDepartmentNotFound)
+	if s.treeCache.store == nil {
+		return s.loadDepartmentTree(ctx, id, depth, includeEmployees)
 	}
 
-	tree, err := s.buildDepartmentTree(ctx, department, depth, includeEmployees)
-	if err != nil {
-		return nil, err
-	}
-
-	return &tree, nil
+	return s.getDepartmentTreeCached(ctx, id, depth, includeEmployees)
 }
 
-// helper func
-
-func (s *DepartmentService) buildDepartmentTree(
-	ctx context.Context,
-	department *model.Department,
-	depth int,
-	includeEmployees bool,
-) (dto.DepartmentTreeResponse, error) {
+func (s *DepartmentService) buildDepartmentTree(ctx context.Context, department *model.Department, depth int, includeEmployees bool) (dto.DepartmentTreeResponse, error) {
 	response := dto.DepartmentTreeResponse{
 		ID:        department.ID,
 		Name:      department.Name,
@@ -126,7 +111,7 @@ func (s *DepartmentService) buildDepartmentTree(
 	}
 
 	if includeEmployees {
-		employees, err := s.employeeRepo.GetEmployeesForTree(ctx, department.ID)
+		employees, err := s.employeeRepo.ListByDepartmentID(ctx, department.ID)
 		if err != nil {
 			return dto.DepartmentTreeResponse{}, err
 		}
@@ -155,7 +140,19 @@ func (s *DepartmentService) buildDepartmentTree(
 	return response, nil
 }
 
-// delete department
+func (s *DepartmentService) loadDepartmentTree(ctx context.Context, id uint, depth int, includeEmployees bool) (*dto.DepartmentTreeResponse, error) {
+	department, err := s.departmentRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, mapStorageError(err, ErrDepartmentNotFound)
+	}
+
+	tree, err := s.buildDepartmentTree(ctx, department, depth, includeEmployees)
+	if err != nil {
+		return nil, err
+	}
+
+	return &tree, nil
+}
 
 func (s *DepartmentService) DeleteDepartment(ctx context.Context, input DeleteDepartmentInput) (*dto.DeleteDepartmentResponse, error) {
 	if input.ID == 0 {
@@ -171,6 +168,8 @@ func (s *DepartmentService) DeleteDepartment(ctx context.Context, input DeleteDe
 		if err := s.departmentRepo.DeleteByID(ctx, input.ID); err != nil {
 			return nil, err
 		}
+
+		bumpDepartmentTreeEpoch(ctx, s.treeCache.store)
 
 		return &dto.DeleteDepartmentResponse{
 			Message: "department deleted",
@@ -210,6 +209,8 @@ func (s *DepartmentService) DeleteDepartment(ctx context.Context, input DeleteDe
 			return nil, mapStorageConflict(err, ErrDepartmentAlreadyExists)
 		}
 
+		bumpDepartmentTreeEpoch(ctx, s.treeCache.store)
+
 		return &dto.DeleteDepartmentResponse{
 			Message:                "department deleted",
 			ID:                     input.ID,
@@ -221,8 +222,6 @@ func (s *DepartmentService) DeleteDepartment(ctx context.Context, input DeleteDe
 		return nil, ErrInvalidDeleteMode
 	}
 }
-
-// patch department
 
 func (s *DepartmentService) PatchDepartment(ctx context.Context, input PatchDepartmentInput) (*model.Department, error) {
 	if input.ID == 0 {
@@ -295,6 +294,8 @@ func (s *DepartmentService) PatchDepartment(ctx context.Context, input PatchDepa
 	if err := s.departmentRepo.Update(ctx, department); err != nil {
 		return nil, mapStorageConflict(err, ErrDepartmentAlreadyExists)
 	}
+
+	bumpDepartmentTreeEpoch(ctx, s.treeCache.store)
 
 	return department, nil
 }

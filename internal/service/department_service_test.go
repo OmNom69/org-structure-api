@@ -23,10 +23,7 @@ type departmentTreeDepartmentRepository struct {
 	getChildrenCalls []uint
 }
 
-func (f *departmentTreeDepartmentRepository) GetByID(
-	ctx context.Context,
-	id uint,
-) (*model.Department, error) {
+func (f *departmentTreeDepartmentRepository) GetByID(ctx context.Context, id uint) (*model.Department, error) {
 	f.getByIDCalls = append(f.getByIDCalls, id)
 
 	if err, ok := f.getByIDErrors[id]; ok {
@@ -41,10 +38,7 @@ func (f *departmentTreeDepartmentRepository) GetByID(
 	return department, nil
 }
 
-func (f *departmentTreeDepartmentRepository) GetChildren(
-	ctx context.Context,
-	parentID uint,
-) ([]model.Department, error) {
+func (f *departmentTreeDepartmentRepository) GetChildren(ctx context.Context, parentID uint) ([]model.Department, error) {
 	f.getChildrenCalls = append(f.getChildrenCalls, parentID)
 
 	if err, ok := f.getChildrenErrors[parentID]; ok {
@@ -63,10 +57,7 @@ type departmentTreeEmployeeRepository struct {
 	getEmployeesCalls []uint
 }
 
-func (f *departmentTreeEmployeeRepository) GetEmployeesForTree(
-	ctx context.Context,
-	departmentID uint,
-) ([]model.Employee, error) {
+func (f *departmentTreeEmployeeRepository) ListByDepartmentID(ctx context.Context, departmentID uint) ([]model.Employee, error) {
 	f.getEmployeesCalls = append(f.getEmployeesCalls, departmentID)
 
 	if err, ok := f.errorsByDepartmentID[departmentID]; ok {
@@ -107,7 +98,7 @@ func TestDepartmentService_GetDepartmentTree_Validation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			departmentRepo := &departmentTreeDepartmentRepository{}
 			employeeRepo := &departmentTreeEmployeeRepository{}
-			departmentService := NewDepartmentService(departmentRepo, employeeRepo)
+			departmentService := NewDepartmentService(departmentRepo, employeeRepo, nil, 0)
 
 			tree, err := departmentService.GetDepartmentTree(
 				context.Background(),
@@ -134,7 +125,7 @@ func TestDepartmentService_GetDepartmentTree_Validation(t *testing.T) {
 
 			if len(employeeRepo.getEmployeesCalls) != 0 {
 				t.Fatalf(
-					"expected no GetEmployeesForTree calls, got %v",
+					"expected no ListByDepartmentID calls, got %v",
 					employeeRepo.getEmployeesCalls,
 				)
 			}
@@ -151,7 +142,7 @@ func TestDepartmentService_GetDepartmentTree_BuildsTreeAndPreservesRepositoryOrd
 		childrenByParentID: childrenByParentID,
 	}
 	employeeRepo := &departmentTreeEmployeeRepository{}
-	departmentService := NewDepartmentService(departmentRepo, employeeRepo)
+	departmentService := NewDepartmentService(departmentRepo, employeeRepo, nil, 0)
 
 	tree, err := departmentService.GetDepartmentTree(context.Background(), root.ID, 2, false)
 
@@ -186,7 +177,7 @@ func TestDepartmentService_GetDepartmentTree_BuildsTreeAndPreservesRepositoryOrd
 
 	assertUintCalls(t, "GetByID", departmentRepo.getByIDCalls, []uint{1})
 	assertUintCalls(t, "GetChildren", departmentRepo.getChildrenCalls, []uint{1, 4, 2})
-	assertUintCalls(t, "GetEmployeesForTree", employeeRepo.getEmployeesCalls, nil)
+	assertUintCalls(t, "ListByDepartmentID", employeeRepo.getEmployeesCalls, nil)
 }
 
 func TestDepartmentService_GetDepartmentTree_DepthControlsDescendantEdges(t *testing.T) {
@@ -226,7 +217,7 @@ func TestDepartmentService_GetDepartmentTree_DepthControlsDescendantEdges(t *tes
 				childrenByParentID: childrenByParentID,
 			}
 			employeeRepo := &departmentTreeEmployeeRepository{}
-			departmentService := NewDepartmentService(departmentRepo, employeeRepo)
+			departmentService := NewDepartmentService(departmentRepo, employeeRepo, nil, 0)
 
 			tree, err := departmentService.GetDepartmentTree(
 				context.Background(),
@@ -270,7 +261,7 @@ func TestDepartmentService_GetDepartmentTree_DepthControlsDescendantEdges(t *tes
 				departmentRepo.getChildrenCalls,
 				tt.wantGetChildren,
 			)
-			assertUintCalls(t, "GetEmployeesForTree", employeeRepo.getEmployeesCalls, nil)
+			assertUintCalls(t, "ListByDepartmentID", employeeRepo.getEmployeesCalls, nil)
 		})
 	}
 }
@@ -284,7 +275,7 @@ func TestDepartmentService_GetDepartmentTree_WithoutEmployeesLeavesEmployeesNil(
 		childrenByParentID: childrenByParentID,
 	}
 	employeeRepo := &departmentTreeEmployeeRepository{}
-	departmentService := NewDepartmentService(departmentRepo, employeeRepo)
+	departmentService := NewDepartmentService(departmentRepo, employeeRepo, nil, 0)
 
 	tree, err := departmentService.GetDepartmentTree(context.Background(), root.ID, 2, false)
 
@@ -293,7 +284,7 @@ func TestDepartmentService_GetDepartmentTree_WithoutEmployeesLeavesEmployeesNil(
 	}
 
 	assertEmployeesNil(t, tree)
-	assertUintCalls(t, "GetEmployeesForTree", employeeRepo.getEmployeesCalls, nil)
+	assertUintCalls(t, "ListByDepartmentID", employeeRepo.getEmployeesCalls, nil)
 
 	if len(tree.Children) != 2 || len(tree.Children[1].Children) != 1 {
 		t.Fatalf("expected complete department tree, got %+v", tree)
@@ -322,7 +313,7 @@ func TestDepartmentService_GetDepartmentTree_WithEmployeesLoadsEveryIncludedDepa
 			},
 		},
 	}
-	departmentService := NewDepartmentService(departmentRepo, employeeRepo)
+	departmentService := NewDepartmentService(departmentRepo, employeeRepo, nil, 0)
 
 	tree, err := departmentService.GetDepartmentTree(context.Background(), root.ID, 2, true)
 
@@ -351,7 +342,7 @@ func TestDepartmentService_GetDepartmentTree_WithEmployeesLoadsEveryIncludedDepa
 	assertUintCalls(t, "GetChildren", departmentRepo.getChildrenCalls, []uint{1, 4, 2})
 	assertUintCalls(
 		t,
-		"GetEmployeesForTree",
+		"ListByDepartmentID",
 		employeeRepo.getEmployeesCalls,
 		[]uint{1, 4, 2, 3},
 	)
@@ -376,7 +367,7 @@ func TestDepartmentService_GetDepartmentTree_WithEmployeesPreservesEmptyNonNilSl
 			root.ID: {},
 		},
 	}
-	departmentService := NewDepartmentService(departmentRepo, employeeRepo)
+	departmentService := NewDepartmentService(departmentRepo, employeeRepo, nil, 0)
 
 	tree, err := departmentService.GetDepartmentTree(context.Background(), root.ID, 1, true)
 
@@ -399,7 +390,7 @@ func TestDepartmentService_GetDepartmentTree_WithEmployeesPreservesEmptyNonNilSl
 	assertEmptyNonNilChildren(t, tree)
 	assertUintCalls(t, "GetByID", departmentRepo.getByIDCalls, []uint{1})
 	assertUintCalls(t, "GetChildren", departmentRepo.getChildrenCalls, []uint{1})
-	assertUintCalls(t, "GetEmployeesForTree", employeeRepo.getEmployeesCalls, []uint{1})
+	assertUintCalls(t, "ListByDepartmentID", employeeRepo.getEmployeesCalls, []uint{1})
 }
 
 func TestDepartmentService_GetDepartmentTree_MapsDepartmentNotFound(t *testing.T) {
@@ -409,7 +400,7 @@ func TestDepartmentService_GetDepartmentTree_MapsDepartmentNotFound(t *testing.T
 		},
 	}
 	employeeRepo := &departmentTreeEmployeeRepository{}
-	departmentService := NewDepartmentService(departmentRepo, employeeRepo)
+	departmentService := NewDepartmentService(departmentRepo, employeeRepo, nil, 0)
 
 	tree, err := departmentService.GetDepartmentTree(context.Background(), 7, 1, true)
 
@@ -423,7 +414,7 @@ func TestDepartmentService_GetDepartmentTree_MapsDepartmentNotFound(t *testing.T
 
 	assertUintCalls(t, "GetByID", departmentRepo.getByIDCalls, []uint{7})
 	assertUintCalls(t, "GetChildren", departmentRepo.getChildrenCalls, nil)
-	assertUintCalls(t, "GetEmployeesForTree", employeeRepo.getEmployeesCalls, nil)
+	assertUintCalls(t, "ListByDepartmentID", employeeRepo.getEmployeesCalls, nil)
 }
 
 func TestDepartmentService_GetDepartmentTree_PropagatesGetByIDError(t *testing.T) {
@@ -434,7 +425,7 @@ func TestDepartmentService_GetDepartmentTree_PropagatesGetByIDError(t *testing.T
 		},
 	}
 	employeeRepo := &departmentTreeEmployeeRepository{}
-	departmentService := NewDepartmentService(departmentRepo, employeeRepo)
+	departmentService := NewDepartmentService(departmentRepo, employeeRepo, nil, 0)
 
 	tree, err := departmentService.GetDepartmentTree(context.Background(), 9, 1, true)
 
@@ -448,7 +439,7 @@ func TestDepartmentService_GetDepartmentTree_PropagatesGetByIDError(t *testing.T
 
 	assertUintCalls(t, "GetByID", departmentRepo.getByIDCalls, []uint{9})
 	assertUintCalls(t, "GetChildren", departmentRepo.getChildrenCalls, nil)
-	assertUintCalls(t, "GetEmployeesForTree", employeeRepo.getEmployeesCalls, nil)
+	assertUintCalls(t, "ListByDepartmentID", employeeRepo.getEmployeesCalls, nil)
 }
 
 func TestDepartmentService_GetDepartmentTree_StopsAfterGetChildrenError(t *testing.T) {
@@ -468,7 +459,7 @@ func TestDepartmentService_GetDepartmentTree_StopsAfterGetChildrenError(t *testi
 		},
 	}
 	employeeRepo := &departmentTreeEmployeeRepository{}
-	departmentService := NewDepartmentService(departmentRepo, employeeRepo)
+	departmentService := NewDepartmentService(departmentRepo, employeeRepo, nil, 0)
 
 	tree, err := departmentService.GetDepartmentTree(context.Background(), root.ID, 2, false)
 
@@ -482,7 +473,7 @@ func TestDepartmentService_GetDepartmentTree_StopsAfterGetChildrenError(t *testi
 
 	assertUintCalls(t, "GetByID", departmentRepo.getByIDCalls, []uint{1})
 	assertUintCalls(t, "GetChildren", departmentRepo.getChildrenCalls, []uint{1, 2})
-	assertUintCalls(t, "GetEmployeesForTree", employeeRepo.getEmployeesCalls, nil)
+	assertUintCalls(t, "ListByDepartmentID", employeeRepo.getEmployeesCalls, nil)
 }
 
 func TestDepartmentService_GetDepartmentTree_StopsAfterGetEmployeesError(t *testing.T) {
@@ -506,7 +497,7 @@ func TestDepartmentService_GetDepartmentTree_StopsAfterGetEmployeesError(t *test
 			2: getEmployeesErr,
 		},
 	}
-	departmentService := NewDepartmentService(departmentRepo, employeeRepo)
+	departmentService := NewDepartmentService(departmentRepo, employeeRepo, nil, 0)
 
 	tree, err := departmentService.GetDepartmentTree(context.Background(), root.ID, 2, true)
 
@@ -515,12 +506,12 @@ func TestDepartmentService_GetDepartmentTree_StopsAfterGetEmployeesError(t *test
 	}
 
 	if !errors.Is(err, getEmployeesErr) {
-		t.Fatalf("expected GetEmployeesForTree error, got %v", err)
+		t.Fatalf("expected ListByDepartmentID error, got %v", err)
 	}
 
 	assertUintCalls(t, "GetByID", departmentRepo.getByIDCalls, []uint{1})
 	assertUintCalls(t, "GetChildren", departmentRepo.getChildrenCalls, []uint{1})
-	assertUintCalls(t, "GetEmployeesForTree", employeeRepo.getEmployeesCalls, []uint{1, 2})
+	assertUintCalls(t, "ListByDepartmentID", employeeRepo.getEmployeesCalls, []uint{1, 2})
 }
 
 func newDepartmentTreeFixture() (*model.Department, map[uint][]model.Department) {
@@ -558,11 +549,7 @@ func newDepartmentTreeFixture() (*model.Department, map[uint][]model.Department)
 	}
 }
 
-func assertDepartmentTreeNode(
-	t *testing.T,
-	got *dto.DepartmentTreeResponse,
-	want model.Department,
-) {
+func assertDepartmentTreeNode(t *testing.T, got *dto.DepartmentTreeResponse, want model.Department) {
 	t.Helper()
 
 	if got.ID != want.ID {
@@ -624,12 +611,7 @@ func assertEmployeesNil(t *testing.T, tree *dto.DepartmentTreeResponse) {
 	}
 }
 
-func assertEmployeeIDs(
-	t *testing.T,
-	departmentName string,
-	employees *[]model.Employee,
-	wantIDs []uint,
-) {
+func assertEmployeeIDs(t *testing.T, departmentName string, employees *[]model.Employee, wantIDs []uint) {
 	t.Helper()
 
 	if employees == nil {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/OmNom69/org-structure-api/internal/cache"
 	"github.com/OmNom69/org-structure-api/internal/config"
 	"github.com/OmNom69/org-structure-api/internal/database"
 	"github.com/OmNom69/org-structure-api/internal/handler"
@@ -20,22 +22,40 @@ import (
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 
-	cfg := config.Load()
+	if err := run(logger); err != nil {
+		logger.Error("application stopped", slog.Any("error", err))
+		os.Exit(1)
+	}
+}
+
+func run(logger *slog.Logger) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load configuration: %w", err)
+	}
 
 	db, err := database.Connect(cfg)
 	if err != nil {
-		logger.Error("failed to connect to database", slog.Any("error", err))
-
-		os.Exit(1)
+		return fmt.Errorf("connect to database: %w", err)
 	}
 
 	logger.Info("database connected")
 
+	redisStore := setupRedis(logger, cfg)
+	if redisStore != nil {
+		defer func() {
+			if err := redisStore.Close(); err != nil {
+				logger.Error("failed to close redis client", slog.Any("error", err))
+			}
+		}()
+	}
+	cacheStore := cacheStoreForRedis(redisStore, logger)
+
 	departmentRepo := repository.NewDepartmentRepository(db)
 	employeeRepo := repository.NewEmployeeRepository(db)
 
-	employeeService := service.NewEmployeeService(employeeRepo, departmentRepo)
-	departmentService := service.NewDepartmentService(departmentRepo, employeeRepo)
+	employeeService := service.NewEmployeeService(employeeRepo, departmentRepo, cacheStore)
+	departmentService := service.NewDepartmentService(departmentRepo, employeeRepo, cacheStore, cfg.CacheTTL)
 
 	departmentHandler := handler.NewDepartmentHandler(departmentService, logger)
 	employeeHandler := handler.NewEmployeeHandler(employeeService, logger)
@@ -86,12 +106,10 @@ func main() {
 	select {
 	case err := <-serverErrors:
 		if err != nil && err != http.ErrServerClosed {
-			logger.Error("server stopped unexpectedly", slog.Any("error", err))
-
-			os.Exit(1)
+			return fmt.Errorf("server stopped unexpectedly: %w", err)
 		}
 
-		return
+		return nil
 
 	case <-shutdownSignal.Done():
 		logger.Info("shutdown signal received")
@@ -101,14 +119,58 @@ func main() {
 	defer cancel()
 
 	if err := server.Shutdown(shutdownContext); err != nil {
-		logger.Error("graceful shutdown failed", slog.Any("error", err))
-
 		if closeErr := server.Close(); closeErr != nil {
 			logger.Error("failed to force server close", slog.Any("error", closeErr))
 		}
 
-		os.Exit(1)
+		return fmt.Errorf("graceful shutdown failed: %w", err)
 	}
 
 	logger.Info("server stopped gracefully")
+
+	return nil
+}
+
+func setupRedis(logger *slog.Logger, cfg config.Config) *cache.RedisStore {
+	if !cfg.RedisEnabled {
+		logger.Info("redis disabled")
+
+		return nil
+	}
+
+	store := cache.NewRedisStore(cache.Options{
+		Addr:         cfg.RedisAddr,
+		Password:     cfg.RedisPassword,
+		DB:           cfg.RedisDB,
+		DialTimeout:  cfg.RedisDialTimeout,
+		ReadTimeout:  cfg.RedisReadTimeout,
+		WriteTimeout: cfg.RedisWriteTimeout,
+	})
+
+	pingContext, cancel := context.WithTimeout(
+		context.Background(),
+		cfg.RedisDialTimeout,
+	)
+	defer cancel()
+
+	if err := store.Ping(pingContext); err != nil {
+		logger.Warn(
+			"redis unavailable at startup; continuing with cache degraded",
+			slog.Any("error", err),
+		)
+
+		return store
+	}
+
+	logger.Info("redis connected")
+
+	return store
+}
+
+func cacheStoreForRedis(redisStore *cache.RedisStore, logger *slog.Logger) service.CacheStore {
+	if redisStore == nil {
+		return nil
+	}
+
+	return cache.NewLoggingStore(redisStore, logger)
 }

@@ -13,22 +13,41 @@ API поддерживает работу с древовидной структ
 - PostgreSQL
 - GORM
 - Goose
+- Redis
+- `go-redis/v9`
+- `singleflight`
 - Docker / Docker Compose
 - Nginx
+- GitHub Actions
 - `log/slog`
 - `testing`
 
 ## Инженерные решения
 
-- слоистая архитектура `handler → service → repository`;
-- dependency injection через конструкторы;
-- repository-интерфейсы и тестовые реализации для unit-тестов;
-- транзакции при сложных операциях с данными;
-- единый JSON-формат ошибок;
-- структурированное логирование и HTTP middleware;
-- healthcheck приложения и PostgreSQL;
-- Nginx как единая внешняя точка входа;
-- graceful shutdown с использованием `context`, goroutine, channel и `select`.
+- модульный монолит со слоистой архитектурой `handler → service → repository`;
+- dependency injection через конструкторы и зависимости через интерфейсы;
+- repository/cache test doubles для unit-тестирования без PostgreSQL и Redis;
+- транзакции для составных операций изменения организационной структуры;
+- cache-aside для дерева подразделений с versioned keys, TTL+jitter и `singleflight`;
+- глобальная epoch-инвалидация cache после успешных mutations;
+- ограничения и индексы PostgreSQL для целостности и ускорения связей;
+- единый JSON-формат ошибок и стабильные error codes;
+- структурированное логирование, HTTP middleware и Nginx access logs;
+- optional Redis с fail-open поведением;
+- graceful shutdown с использованием `context`, goroutine, channel и `select`;
+- CI в GitHub Actions: format, `go vet`, race tests и build.
+
+## Что демонстрирует проект
+
+Проект покрывает не только CRUD, но и несколько сценариев, типичных для backend-сервисов:
+
+- рекурсивное построение дерева с контролем глубины и защитой от циклов;
+- транзакционный `reassign` с переносом сотрудников и дочерних подразделений;
+- частичные PATCH-обновления с различием между отсутствующим полем и `null`;
+- cache-aside с защитой от cache stampede внутри процесса;
+- graceful degradation при недоступном optional cache;
+- контейнерную сетевую схему `Nginx → Go → PostgreSQL/Redis`;
+- автоматические quality checks в CI.
 
 ## Архитектура
 
@@ -42,12 +61,10 @@ logging middleware
 handler
     ↓
 service
-    ↓
-repository interface
-    ↓
-repository implementation
-    ↓
-GORM
+   ↙   ↘
+repository  CacheStore
+    ↓          ↓
+   GORM      Redis
     ↓
 PostgreSQL
 ```
@@ -68,6 +85,7 @@ PostgreSQL
 | `storage` | Ошибки уровня хранения данных |
 | `config` | Загрузка конфигурации из переменных окружения |
 | `database` | Создание подключения к PostgreSQL |
+| `cache` | Redis adapter и lifecycle-операции cache-клиента |
 
 Зависимости создаются в `cmd/app/main.go` и передаются через конструкторы:
 
@@ -76,6 +94,8 @@ repository → service → handler
 ```
 
 Service-слой зависит от repository-интерфейсов, а не от конкретной реализации. Благодаря этому бизнес-логику можно тестировать с тестовыми реализациями репозиториев без запуска PostgreSQL.
+
+Redis-инфраструктура также отделена интерфейсом `CacheStore`: конкретный adapter находится в `internal/cache`, а lifecycle клиента управляется в `cmd/app`. `DepartmentService.GetDepartmentTree` использует этот интерфейс для optional cache-aside; при выключенном или недоступном Redis сервис сохраняет прежний repository-path через PostgreSQL.
 
 ## Возможности
 
@@ -110,6 +130,8 @@ Service-слой зависит от repository-интерфейсов, а не 
 ### Инфраструктура API
 
 - healthcheck приложения и PostgreSQL;
+- optional подключение к Redis с ограниченными timeout и startup `PING`;
+- cache-aside дерева подразделений с TTL+jitter, `singleflight` и epoch-инвалидацией;
 - структурированное логирование через `log/slog`;
 - middleware с логированием метода, пути, статуса и длительности запроса;
 - единый JSON-формат ошибок для ошибок входных данных и service-слоя;
@@ -117,12 +139,14 @@ Service-слой зависит от repository-интерфейсов, а не 
 - скрытие деталей внутренних ошибок от клиента;
 - graceful shutdown при `Ctrl+C` и `SIGTERM`;
 - таймаут чтения HTTP-заголовков;
-- контейнеризация Nginx, приложения и PostgreSQL;
+- контейнеризация Nginx, приложения, PostgreSQL и Redis;
 - закрытый от хоста порт Go-приложения;
 - ограничение размера и частоты запросов на уровне Nginx;
 - request ID и JSON access-логи Nginx;
 - версионирование схемы БД через Goose;
-- unit-тесты части `EmployeeService`.
+- индексы и уникальные ограничения PostgreSQL;
+- unit-тесты service-логики, Redis adapter и cache-aside дерева;
+- GitHub Actions для форматирования, `go vet`, race tests и build.
 
 ## Детали реализации
 
@@ -260,9 +284,9 @@ DELETE /departments/{id}?mode=reassign&reassign_to_department_id=1
 - Docker Compose;
 - Goose — для применения миграций с компьютера.
 
-Отдельно устанавливать Nginx не требуется: Docker Compose скачивает официальный образ автоматически.
+Отдельно устанавливать Nginx и Redis не требуется: Docker Compose скачивает официальные образы автоматически.
 
-Compose использует официальный образ `nginx:1.30.4-alpine` с явно закреплённой версией вместо плавающего тега `stable-alpine`.
+Compose использует официальные образы `nginx:1.30.4-alpine` и `redis:8.2.8-alpine` с явно закреплёнными patch-версиями вместо плавающих тегов.
 
 ### 1. Клонировать репозиторий
 
@@ -297,21 +321,30 @@ DB_PASSWORD=your_password
 DB_NAME=org_structure
 DB_SSLMODE=disable
 
+REDIS_ENABLED=true
+REDIS_ADDR=redis:6379
+REDIS_PASSWORD=your_redis_password
+REDIS_DB=0
+REDIS_DIAL_TIMEOUT=2s
+REDIS_READ_TIMEOUT=1s
+REDIS_WRITE_TIMEOUT=1s
+CACHE_TTL=5m
+
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=your_password
 POSTGRES_DB=org_structure
 ```
 
-### 3. Запустить Nginx, приложение и PostgreSQL
+### 3. Запустить Nginx, приложение, PostgreSQL и Redis
 
 ```bash
-docker compose up --build -d
+docker compose --env-file .env.docker up --build -d
 ```
 
 Проверить состояние контейнеров:
 
 ```bash
-docker compose ps
+docker compose --env-file .env.docker ps
 ```
 
 После запуска:
@@ -321,15 +354,17 @@ docker compose ps
 | API через Nginx | `http://localhost:8080` |
 | Healthcheck Nginx | `http://localhost:8080/nginx-health` |
 | PostgreSQL для Goose | `127.0.0.1:5433` |
+| Redis | Не публикуется на компьютере |
 
 Маршрут HTTP-запроса:
 
 ```text
 client → 127.0.0.1:8080 → nginx:80 → app:8080
 Goose  → 127.0.0.1:5433 ───────────→ db:5432
+                                   app → redis:6379
 ```
 
-Порт `app:8080` доступен только контейнерам во внутренних сетях Compose и не публикуется на компьютере. Поэтому приложение нельзя вызвать в обход Nginx.
+Порты `app:8080` и `redis:6379` доступны только контейнерам во внутренних сетях Compose и не публикуются на компьютере. Поэтому приложение нельзя вызвать в обход Nginx, а Redis недоступен напрямую с host.
 
 ### 4. Применить миграции
 
@@ -394,6 +429,8 @@ GET http://localhost:8080/health
 }
 ```
 
+Redis намеренно не входит в контракт `GET /health`: это optional cache dependency. Недоступность Redis логируется, но сама по себе не переводит API в `503`, пока PostgreSQL остаётся доступен.
+
 ## Переменные окружения
 
 | Переменная | Назначение | Значение по умолчанию |
@@ -405,12 +442,62 @@ GET http://localhost:8080/health
 | `DB_PASSWORD` | Пароль БД | `postgres` |
 | `DB_NAME` | Название БД | `org_structure` |
 | `DB_SSLMODE` | Режим SSL | `disable` |
+| `REDIS_ENABLED` | Создавать Redis client и выполнять startup `PING` | `false` |
+| `REDIS_ADDR` | Адрес Redis | `localhost:6379` |
+| `REDIS_PASSWORD` | Пароль Redis | пусто |
+| `REDIS_DB` | Номер логической Redis DB, неотрицательное целое | `0` |
+| `REDIS_DIAL_TIMEOUT` | Timeout установления соединения и startup `PING` | `2s` |
+| `REDIS_READ_TIMEOUT` | Timeout чтения Redis-команд | `1s` |
+| `REDIS_WRITE_TIMEOUT` | Timeout записи Redis-команд | `1s` |
+| `CACHE_TTL` | Базовый TTL JSON-кэша дерева; при включённом Redis должен быть больше нуля | `5m` |
 
 В `.env.docker` также используются `POSTGRES_USER`, `POSTGRES_PASSWORD` и `POSTGRES_DB` для инициализации контейнера PostgreSQL.
 
+Значения `DB_USER`, `DB_PASSWORD`, `DB_NAME` должны соответствовать `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, если отдельный пользователь БД не создаётся вручную. `DB_PASSWORD` и `POSTGRES_PASSWORD` обязательны для Compose: запуск без корректного `--env-file .env.docker` завершится понятной ошибкой вместо использования известного fallback-пароля.
+
+Compose читает значения из этого файла через явный флаг `--env-file .env.docker`. В `docker-compose.yml` используется allowlist: PostgreSQL получает только `POSTGRES_*`, приложение — только `APP_PORT`, `DB_*`, `REDIS_*` и `CACHE_TTL`, а Redis — только `REDIS_PASSWORD`. Это не заменяет production secret store, но не раздаёт Redis credentials посторонним контейнерам.
+
 В Compose `APP_PORT=8080` является фиксированным внутренним контрактом между Nginx и Go-приложением. Изменение значения в локальном `.env.docker` намеренно не меняет этот порт.
 
-Порты для локального запуска заданы в `docker-compose.yml`: Nginx слушает `127.0.0.1:8080`, а PostgreSQL — `127.0.0.1:5433`. Привязка к `127.0.0.1` не открывает эти порты другим устройствам локальной сети.
+Порты для локального запуска заданы в `docker-compose.yml`: Nginx слушает `127.0.0.1:8080`, а PostgreSQL — `127.0.0.1:5433`. Привязка к `127.0.0.1` не открывает эти порты другим устройствам локальной сети. Redis не содержит секции `ports` и доступен только сервисам в сети `backend`.
+
+### Optional Redis
+
+Для запуска без Redis установите:
+
+```env
+REDIS_ENABLED=false
+```
+
+В этом режиме приложение не создаёт Redis client и не выполняет сетевые обращения к Redis. Контейнер Redis можно не запускать, указав Compose только необходимые сервисы.
+
+При `REDIS_ENABLED=true` приложение создаёт один долгоживущий client и выполняет startup `PING`, ограниченный `REDIS_DIAL_TIMEOUT`. Если Redis в этот момент недоступен, приложение пишет warning и продолжает запуск с PostgreSQL; client сохраняется и сможет восстановить соединение после появления Redis. При graceful shutdown client закрывается.
+
+Bundled Redis используется как disposable cache: RDB и AOF отключены, `/data` явно смонтирован как `tmpfs` без persistent named/anonymous volume, поэтому данные исчезают при пересоздании контейнера. `maxmemory` ограничен `128 MiB`, а при заполнении памяти применяется `volatile-lfu`: вытесняться могут tree payload keys с TTL, но служебный epoch key без TTL остаётся доступным.
+
+Проверить Redis внутри закрытой сети Compose:
+
+```bash
+docker compose --env-file .env.docker exec redis sh -c 'REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli ping'
+```
+
+Ожидаемый ответ: `PONG`.
+
+### Cache-aside дерева подразделений
+
+`GET /departments/{id}` после валидации читает глобальный epoch из `department-tree:epoch` и строит ключ:
+
+```text
+department-tree:v<epoch>:id=<id>:depth=<depth>:employees=<true|false>
+```
+
+Отсутствующий epoch означает начальное поколение `0`. На cache hit JSON декодируется сразу в `DepartmentTreeResponse`, без обращений к repository. На cache miss дерево строится из PostgreSQL и сохраняется в Redis. Синтаксически повреждённый или структурно непригодный JSON (`null`, чужой root ID, nil вместо обязательных slices) считается miss и заменяется корректным результатом. Ответы больше `1 MiB` возвращаются клиенту, но не записываются в cache.
+
+К базовому `CACHE_TTL` добавляется случайный jitter от `0` до `10%`; итоговый TTL всегда положительный. Одновременные miss одного полного ключа объединяются process-local `singleflight`, поэтому один экземпляр приложения строит дерево из PostgreSQL один раз. Между разными экземплярами приложения distributed lock не используется.
+
+После успешных create, patch и delete/reassign операций над подразделениями, а также create, patch/move и delete операций над сотрудниками, сервис атомарно повышает глобальный epoch командой Redis `INCR`. Старые payload keys не удаляются вручную: новое поколение их не читает, а позднее они исчезают по TTL. Read, write и increment ошибки Redis логируются и не меняют результат основного PostgreSQL-запроса. PostgreSQL остаётся единственным source of truth.
+
+Epoch читается один раз до PostgreSQL fetch и захватывается на весь запрос. Если параллельная mutation повысила epoch, уже начатый reader может сохранить свой старый snapshot только под старым ключом, но не под ключом нового поколения.
 
 ## Nginx
 
@@ -433,12 +520,12 @@ Compose даёт Nginx до 35 секунд на graceful shutdown, чтобы �
 
 В режиме `dry-run` Nginx записывает превышение лимита в лог, но не блокирует запрос. Перед реальным включением лимита значения нужно подобрать по результатам нагрузочного теста.
 
-Кэширование API намеренно не включено: у API есть связанные операции чтения и изменения данных, но пока нет политики кэширования и инвалидации.
+Proxy cache Nginx намеренно не включён. Кэш дерева реализован приложением через optional Redis, поэтому Nginx не дублирует его политику TTL и инвалидации.
 
 Проверить синтаксис конфигурации в запущенном контейнере:
 
 ```bash
-docker compose exec nginx nginx -t
+docker compose --env-file .env.docker exec nginx nginx -t
 ```
 
 ## API
@@ -814,14 +901,14 @@ DELETE /employees/{id}
 Просмотреть последние логи:
 
 ```bash
-docker compose logs nginx --tail 50
-docker compose logs app --tail 50
+docker compose --env-file .env.docker logs nginx --tail 50
+docker compose --env-file .env.docker logs app --tail 50
 ```
 
 Следить за логами Nginx и приложения в реальном времени:
 
 ```bash
-docker compose logs -f nginx app
+docker compose --env-file .env.docker logs -f nginx app
 ```
 
 Nginx пишет адрес клиента, который он видит, HTTP-метод, путь без query string, статус, request ID, полное время запроса, адрес upstream и время ответа приложения. Go-приложение продолжает писать события бизнес-логики и внутренние ошибки.
@@ -847,8 +934,8 @@ HTTP-сервер обрабатывает `Ctrl+C` и `SIGTERM`.
 Проверка через Docker:
 
 ```bash
-docker compose stop app
-docker compose logs app
+docker compose --env-file .env.docker stop app
+docker compose --env-file .env.docker logs app
 ```
 
 Ожидаемые логи:
@@ -861,7 +948,7 @@ server stopped gracefully
 Пока приложение остановлено, Nginx остаётся доступен, но запрос к `/health` вернёт ошибку upstream. Запустить приложение снова:
 
 ```bash
-docker compose start app
+docker compose --env-file .env.docker start app
 ```
 
 ## Тесты
@@ -872,22 +959,26 @@ docker compose start app
 go test ./...
 ```
 
-Сейчас unit-тестами покрыта часть `EmployeeService`:
+Unit-тесты покрывают service-логику, конфигурацию и cache policy, включая:
 
-- отклонение некорректного ID;
-- успешное получение сотрудника;
-- успешное получение списка сотрудников;
-- успешное создание сотрудника;
-- проверка взаимодействия service с тестовыми реализациями репозиториев.
+- семантику `GetDepartmentTree`, глубину, порядок children и ошибки repository;
+- cache disabled, miss, hit, Redis errors и повреждённый JSON;
+- различия cache keys по epoch, department ID, depth и `include_employees`;
+- JSON round-trip для nil/empty полей, TTL+jitter и лимит размера value;
+- объединение 100 конкурентных miss одного ключа через `singleflight`;
+- повышение epoch после успешных department/employee mutations и отсутствие повышения после DB error;
+- конкурентный reader со старым epoch и параллельную mutation;
+- Redis adapter, operation deadlines, error wrapping и cache logging;
+- Redis/config wiring и сценарий полностью выключенного cache.
 
-Тесты не требуют запуска PostgreSQL, потому что service-слой зависит от repository-интерфейсов.
+Большая часть unit-тестов не требует запуска PostgreSQL или Redis, потому что service-слой зависит от repository/cache интерфейсов.
 
 Проверить инфраструктурную конфигурацию:
 
 ```bash
-docker compose config --quiet
-docker compose exec nginx nginx -t
-docker compose ps
+docker compose --env-file .env.docker config --quiet
+docker compose --env-file .env.docker exec nginx nginx -t
+docker compose --env-file .env.docker ps
 ```
 
 ## Структура проекта
@@ -896,14 +987,21 @@ docker compose ps
 org-structure-api/
 ├── cmd/
 │   └── app/
-│       └── main.go
+│       ├── main.go
+│       └── main_test.go
 ├── deploy/
 │   └── nginx/
 │       └── conf.d/
 │           └── api.conf
 ├── internal/
 │   ├── config/
-│   │   └── config.go
+│   │   ├── config.go
+│   │   └── config_test.go
+│   ├── cache/
+│   │   ├── logging.go
+│   │   ├── logging_test.go
+│   │   ├── redis.go
+│   │   └── redis_test.go
 │   ├── database/
 │   │   └── database.go
 │   ├── dto/
@@ -911,9 +1009,9 @@ org-structure-api/
 │   ├── handler/
 │   │   ├── department_handler.go
 │   │   ├── employee_handler.go
-│   │   ├── error_status.go
+│   │   ├── error.go
 │   │   ├── health_handler.go
-│   │   └── optional.go
+│   │   └── optional_json.go
 │   ├── middleware/
 │   │   └── logging.go
 │   ├── model/
@@ -923,8 +1021,12 @@ org-structure-api/
 │   │   ├── department_repository.go
 │   │   └── employee_repository.go
 │   ├── service/
+│   │   ├── cache_invalidation_test.go
 │   │   ├── contracts.go
 │   │   ├── department_service.go
+│   │   ├── department_service_test.go
+│   │   ├── department_tree_cache.go
+│   │   ├── department_tree_cache_test.go
 │   │   ├── employee_service.go
 │   │   ├── employee_service_test.go
 │   │   └── errors.go
@@ -935,6 +1037,9 @@ org-structure-api/
 ├── migrations/
 │   ├── 01_create_departments_and_employees.sql
 │   └── 02_add_indexes_and_constraints.sql
+├── .github/
+│   └── workflows/
+│       └── ci.yml
 ├── .dockerignore
 ├── .env.docker.example
 ├── .env.example
@@ -948,19 +1053,16 @@ org-structure-api/
 
 ## Следующие улучшения
 
-- unit-тесты `DepartmentService`;
 - HTTP-тесты handlers через `httptest`;
-- пагинация, поиск и фильтрация сотрудников;
-- индексы для `departments.parent_id` и `employees.department_id`;
-- GitHub Actions для `go test`, `go vet` и race detector;
-- OpenAPI / Swagger;
-- integration-тесты repository-слоя с PostgreSQL;
-- единый helper для кодирования успешных JSON-ответов;
-- корректное закрытие и настройка пула соединений с PostgreSQL;
+- integration-тесты repository-слоя с реальным PostgreSQL / Testcontainers;
+- OpenAPI 3 и Swagger UI;
+- пагинация, поиск и фильтрация списка сотрудников;
+- настройка и корректное закрытие PostgreSQL connection pool;
+- переход части сложных запросов на `pgx` / raw SQL и `WITH RECURSIVE`;
 - отдельные liveness- и readiness-endpoints;
-- request deadline и дополнительные HTTP-таймауты в Go;
-- ограничение request body также на уровне Go;
-- request-ID middleware и доверие proxy-заголовкам только от Nginx;
-- включение rate limit после нагрузочного теста;
-- TLS и аутентификация перед публикацией в production;
-- CI-проверки Nginx, Docker Compose и HTTP smoke-test.
+- request ID в Go-логах для сквозной корреляции с Nginx;
+- дополнительные HTTP-timeout и ограничение request body на уровне приложения;
+- Prometheus-метрики и Grafana для latency, errors, cache hit/miss и DB pool;
+- OpenTelemetry traces для HTTP, PostgreSQL и Redis;
+- нагрузочные smoke/performance тесты перед включением rate limit;
+- отдельный audit/event сервис и message broker как следующий этап развития архитектуры.

@@ -42,7 +42,7 @@ func (f *fakeEmployeeRepository) GetByID(ctx context.Context, id uint) (*model.E
 	return f.employee, f.err
 }
 
-func (f *fakeEmployeeRepository) GetAllEmployees(ctx context.Context) ([]model.Employee, error) {
+func (f *fakeEmployeeRepository) List(ctx context.Context) ([]model.Employee, error) {
 
 	return f.employees, f.err
 }
@@ -55,7 +55,7 @@ func (f *fakeEmployeeRepository) Create(ctx context.Context, employee *model.Emp
 }
 
 func TestEmployeeService_GetEmployee_InvalidID(t *testing.T) {
-	employeeService := NewEmployeeService(nil, nil)
+	employeeService := NewEmployeeService(nil, nil, nil)
 
 	employee, err := employeeService.GetEmployee(context.Background(), 0)
 
@@ -80,7 +80,7 @@ func TestEmployeeService_GetEmployee_Success(t *testing.T) {
 		employee: expectedEmployee,
 	}
 
-	employeeService := NewEmployeeService(employeeRepo, nil)
+	employeeService := NewEmployeeService(employeeRepo, nil, nil)
 
 	employee, err := employeeService.GetEmployee(context.Background(), 7)
 
@@ -115,7 +115,7 @@ func TestEmployeeService_GetEmployees_Success(t *testing.T) {
 		employees: expectedEmployees,
 	}
 
-	employeeService := NewEmployeeService(employeeRepo, nil)
+	employeeService := NewEmployeeService(employeeRepo, nil, nil)
 
 	employees, err := employeeService.GetEmployees(context.Background())
 
@@ -146,7 +146,7 @@ func TestEmployeeService_CreateEmployee_Success(t *testing.T) {
 		},
 	}
 
-	employeeService := NewEmployeeService(employeeRepo, departmentRepo)
+	employeeService := NewEmployeeService(employeeRepo, departmentRepo, nil)
 
 	employee, err := employeeService.CreateEmployee(
 		context.Background(),

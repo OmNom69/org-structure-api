@@ -45,7 +45,7 @@ func (r *EmployeeRepository) GetByID(ctx context.Context, id uint) (*model.Emplo
 
 // get all employees
 
-func (r *EmployeeRepository) GetAllEmployees(ctx context.Context) ([]model.Employee, error) {
+func (r *EmployeeRepository) List(ctx context.Context) ([]model.Employee, error) {
 	var employees []model.Employee
 
 	if err := r.db.WithContext(ctx).Find(&employees).Error; err != nil {
@@ -63,7 +63,7 @@ func (r *EmployeeRepository) Update(ctx context.Context, employee *model.Employe
 
 // include employees
 
-func (r *EmployeeRepository) GetEmployeesForTree(
+func (r *EmployeeRepository) ListByDepartmentID(
 	ctx context.Context,
 	departmentID uint,
 ) ([]model.Employee, error) {
